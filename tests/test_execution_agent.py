@@ -61,13 +61,31 @@ class ExecutionTests(unittest.TestCase):
             trading_enabled=True,
             dry_run=False,
             mt5_login=12345,
-            order_comment="placed by CryptoAgent",
+            magic_number=26081301,
+            application_name="CryptoAgent",
+            strategy_name="ChronosFinBERT",
         )
         fake = FakeSubmitMT5()
         agent = MT5ExecutionAgent(settings, fake)
-        plan = OrderPlan("BTCUSD", Side.BUY, 0.01, 100.0, 98.0, 104.0, 1.0, 2.0)
+        plan = OrderPlan(
+            "BTCUSD",
+            Side.BUY,
+            0.01,
+            100.0,
+            98.0,
+            104.0,
+            1.0,
+            2.0,
+            "ChronosFinBERT",
+        )
         agent.submit(plan)
-        self.assertEqual(fake.request["comment"], "placed by CryptoAgent")
+        self.assertEqual(fake.request["magic"], 26081301)
+        self.assertEqual(fake.request["comment"], "CryptoAgent|ChronosFinBERT")
+
+    def test_order_comment_rejects_mt5_overflow(self):
+        settings = Settings(application_name="CryptoAgent", strategy_name="x" * 30)
+        with self.assertRaisesRegex(ValueError, "exceeds 31"):
+            settings.validate()
 
     def test_routing_can_attach_to_authenticated_demo_terminal(self):
         settings = Settings(

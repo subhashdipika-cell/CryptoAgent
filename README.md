@@ -10,7 +10,8 @@ An asynchronous Windows trading service for BTCUSD and XAUUSD. Chronos-2 runs lo
 - Risk is capped at 1% of current equity and rounded down to broker lot steps.
 - A separate margin policy limits each order to 25% of free margin.
 - One managed position per symbol prevents repeated entries each loop.
-- Entry orders are labelled `placed by CryptoAgent` in MT5's Comment field.
+- Entry orders use Expert ID `26081301` and the Comment
+  `CryptoAgent|ChronosFinBERT`, identifying both application and strategy.
 - Cloud/API failures return neutral sentiment (`0.5`) and never stop position management.
 
 These controls prevent accidental routing; they do not establish that the strategy is profitable. Forward-test on DEMO with broker-specific spreads, slippage, symbol names, and contract sizes before considering any change in account mode.

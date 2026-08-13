@@ -45,6 +45,7 @@ class OrderPlan:
     take_profit: float
     atr: float
     risk_amount: float
+    strategy_name: str = "ChronosFinBERT"
 
 
 class MT5ExecutionAgent:
@@ -166,7 +167,17 @@ class MT5ExecutionAgent:
         )
         if margin is None or margin > account.margin_free * self.settings.max_margin_fraction:
             raise ValueError(f"{symbol} order exceeds available-margin policy")
-        return OrderPlan(symbol, side, volume, entry, stop, take_profit, atr, risk_amount)
+        return OrderPlan(
+            symbol,
+            side,
+            volume,
+            entry,
+            stop,
+            take_profit,
+            atr,
+            risk_amount,
+            self.settings.strategy_name,
+        )
 
     def submit(self, plan: OrderPlan) -> Any:
         if not self.settings.trading_enabled or self.settings.dry_run:
@@ -182,7 +193,7 @@ class MT5ExecutionAgent:
             "tp": plan.take_profit,
             "deviation": self.settings.max_deviation_points,
             "magic": self.settings.magic_number,
-            "comment": self.settings.order_comment,
+            "comment": self.settings.order_comment(plan.strategy_name),
             "type_time": self.mt5.ORDER_TIME_GTC,
             "type_filling": self.mt5.ORDER_FILLING_IOC,
         }

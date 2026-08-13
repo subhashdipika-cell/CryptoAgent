@@ -71,9 +71,10 @@ class Settings:
     mt5_server: str = field(default_factory=lambda: os.getenv("MT5_SERVER", ""))
     mt5_terminal_path: str = field(default_factory=lambda: os.getenv("MT5_TERMINAL_PATH", ""))
     mt5_timeout_ms: int = 20_000
-    magic_number: int = field(default_factory=lambda: int(os.getenv("MT5_MAGIC", "84010310")))
-    order_comment: str = field(
-        default_factory=lambda: os.getenv("MT5_ORDER_COMMENT", "placed by CryptoAgent")
+    magic_number: int = field(default_factory=lambda: int(os.getenv("MT5_MAGIC", "26081301")))
+    application_name: str = field(default_factory=lambda: os.getenv("MT5_APP_NAME", "CryptoAgent"))
+    strategy_name: str = field(
+        default_factory=lambda: os.getenv("TRADING_STRATEGY", "ChronosFinBERT")
     )
     trading_enabled: bool = field(default_factory=lambda: _bool("TRADING_ENABLED"))
     require_demo_account: bool = field(default_factory=lambda: _bool("REQUIRE_DEMO_ACCOUNT", True))
@@ -106,8 +107,17 @@ class Settings:
             raise ValueError(
                 "MT5_LOGIN or MT5_TERMINAL_PATH is required when order routing is enabled"
             )
-        if not self.order_comment.strip() or len(self.order_comment) > 31:
-            raise ValueError("MT5_ORDER_COMMENT must contain 1 to 31 characters")
+        self.order_comment(self.strategy_name)
+
+    def order_comment(self, strategy_name: str) -> str:
+        application = self.application_name.strip()
+        strategy = strategy_name.strip()
+        if not application or not strategy:
+            raise ValueError("MT5_APP_NAME and TRADING_STRATEGY cannot be blank")
+        comment = f"{application}|{strategy}"
+        if len(comment) > 31:
+            raise ValueError("MT5 application and strategy comment exceeds 31 characters")
+        return comment
 
 
 SETTINGS = Settings()

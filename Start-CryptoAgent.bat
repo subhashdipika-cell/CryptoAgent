@@ -11,6 +11,9 @@ rem Verified Vantage DEMO terminal and broker symbol aliases.
 set "MT5_TERMINAL_PATH=D:\MT5IntelliTrade\terminal64.exe"
 set "MT5_BTC_SYMBOL=BTCUSD"
 set "MT5_XAU_SYMBOL=XAUUSD+"
+set "MT5_MAGIC=26081301"
+set "MT5_APP_NAME=CryptoAgent"
+set "TRADING_STRATEGY=ChronosFinBERT"
 
 rem Order routing is enabled, but the runtime must verify a DEMO account.
 set "REQUIRE_DEMO_ACCOUNT=true"
@@ -38,6 +41,8 @@ if /I "%~1"=="--check" (
     echo CryptoAgent startup check passed.
     echo Terminal: %MT5_TERMINAL_PATH%
     echo Symbols:  %MT5_BTC_SYMBOL%, %MT5_XAU_SYMBOL%
+    echo Expert ID: %MT5_MAGIC% ^(CryptoAgent^)
+    echo Comment:   %MT5_APP_NAME%^|%TRADING_STRATEGY%
     echo Mode:     DEMO only - order routing ENABLED
     echo Risk:     Maximum 1%% of equity per trade
     exit /b 0
