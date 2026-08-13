@@ -20,6 +20,7 @@ rem Order routing is enabled, but the runtime must verify a DEMO account.
 set "REQUIRE_DEMO_ACCOUNT=true"
 set "TRADING_ENABLED=true"
 set "DRY_RUN=false"
+set "MAX_RISK_FRACTION=0.02"
 
 if not exist "%MT5_TERMINAL_PATH%" (
     echo ERROR: MT5 terminal not found: %MT5_TERMINAL_PATH%
@@ -46,7 +47,7 @@ if /I "%~1"=="--check" (
     echo Comment:   %MT5_APP_NAME%^|%TRADING_STRATEGY%
     echo Mode:     DEMO only - order routing ENABLED
     echo Predictor: Dedicated BTC/XAU models with holdout-calibrated policy
-    echo Risk:     Maximum 1%% of equity per trade
+    echo Risk:     Maximum 2%% of equity per trade
     exit /b 0
 )
 

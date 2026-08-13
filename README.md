@@ -14,7 +14,7 @@ gate may influence DEMO orders. Failed or missing policies fail closed with
 - Order routing is off (`TRADING_ENABLED=false`) and dry-run logging is on.
 - A DEMO account is required by default.
 - Every order plan includes its initial SL and TP.
-- Risk is capped at 1% of current equity and rounded down to broker lot steps.
+- Risk is capped at 2% of current equity and rounded down to broker lot steps.
 - A separate margin policy limits each order to 25% of free margin.
 - One managed position per symbol prevents repeated entries each loop.
 - Entry orders use Expert ID `26081301` and the Comment
@@ -65,7 +65,7 @@ This workstation's verified Vantage DEMO terminal uses `BTCUSD` and the broker-s
 
 Double-click `Start-CryptoAgent.bat` to enable order routing to the verified DEMO
 terminal. The launcher forces `REQUIRE_DEMO_ACCOUNT=true`, and the runtime refuses
-to connect if the selected account is not DEMO. It retains the 1% equity risk cap,
+to connect if the selected account is not DEMO. It retains the 2% equity risk cap,
 initial SL/TP requirement, and ATR trailing controls. Validate its local terminal,
 environment, model, and symbol configuration without starting the loop:
 

@@ -99,7 +99,7 @@ class Settings:
     )
     trading_enabled: bool = field(default_factory=lambda: _bool("TRADING_ENABLED"))
     require_demo_account: bool = field(default_factory=lambda: _bool("REQUIRE_DEMO_ACCOUNT", True))
-    max_risk_fraction: float = field(default_factory=lambda: float(os.getenv("MAX_RISK_FRACTION", "0.01")))
+    max_risk_fraction: float = field(default_factory=lambda: float(os.getenv("MAX_RISK_FRACTION", "0.02")))
     max_margin_fraction: float = field(default_factory=lambda: float(os.getenv("MAX_MARGIN_FRACTION", "0.25")))
     min_leverage: int = field(default_factory=lambda: int(os.getenv("MIN_LEVERAGE", "1")))
     max_leverage: int = field(default_factory=lambda: int(os.getenv("MAX_LEVERAGE", "500")))
@@ -125,8 +125,8 @@ class Settings:
     qwen_model: str = "Qwen2.5-Coder-7B-Instruct"
 
     def validate(self) -> None:
-        if not 0 < self.max_risk_fraction <= 0.01:
-            raise ValueError("MAX_RISK_FRACTION must be in (0, 0.01]")
+        if not 0 < self.max_risk_fraction <= 0.02:
+            raise ValueError("MAX_RISK_FRACTION must be in (0, 0.02]")
         if not 0 < self.max_margin_fraction <= 1:
             raise ValueError("MAX_MARGIN_FRACTION must be in (0, 1]")
         if self.bar_count < 50 or self.prediction_length != 5:

@@ -108,7 +108,7 @@ class ExecutionTests(unittest.TestCase):
         plan = MT5ExecutionAgent(settings, FakeMT5()).build_order("BTCUSD", Side.BUY, atr=2.0)
         self.assertLess(plan.stop_loss, plan.entry)
         self.assertGreater(plan.take_profit, plan.entry)
-        self.assertLessEqual(plan.risk_amount, 100.0)
+        self.assertLessEqual(plan.risk_amount, 200.0)
         actual_risk = plan.volume * abs(plan.entry - plan.stop_loss) * 100.0
         self.assertLessEqual(actual_risk, plan.risk_amount)
 
