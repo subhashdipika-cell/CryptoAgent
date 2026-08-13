@@ -15,6 +15,8 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent
 MODEL_DIR = Path(os.getenv("CHRONOS_MODEL_PATH", BASE_DIR / "models" / "chronos-2-base"))
 LOG_DIR = Path(os.getenv("LOG_DIR", BASE_DIR / "logs"))
+DATA_DIR = Path(os.getenv("DATA_DIR", BASE_DIR / "data"))
+REPORT_DIR = Path(os.getenv("REPORT_DIR", BASE_DIR / "reports"))
 
 # Set these before chronos/transformers is imported anywhere else.
 os.environ["HF_HUB_OFFLINE"] = "1"
@@ -71,7 +73,21 @@ class Settings:
     mt5_server: str = field(default_factory=lambda: os.getenv("MT5_SERVER", ""))
     mt5_terminal_path: str = field(default_factory=lambda: os.getenv("MT5_TERMINAL_PATH", ""))
     mt5_timeout_ms: int = 20_000
-    magic_number: int = field(default_factory=lambda: int(os.getenv("MT5_MAGIC", "84010310")))
+    magic_number: int = field(default_factory=lambda: int(os.getenv("MT5_MAGIC", "26081301")))
+    application_name: str = field(default_factory=lambda: os.getenv("MT5_APP_NAME", "CryptoAgent"))
+    strategy_name: str = field(
+        default_factory=lambda: os.getenv("TRADING_STRATEGY", "ChronosFinBERT")
+    )
+    legacy_magic_numbers: tuple[int, ...] = (84010310,)
+    journal_path: Path = field(
+        default_factory=lambda: Path(
+            os.getenv("TRADE_JOURNAL_PATH", DATA_DIR / "trade_journal.db")
+        )
+    )
+    report_dir: Path = REPORT_DIR
+    history_sync_days: int = field(
+        default_factory=lambda: int(os.getenv("HISTORY_SYNC_DAYS", "3650"))
+    )
     trading_enabled: bool = field(default_factory=lambda: _bool("TRADING_ENABLED"))
     require_demo_account: bool = field(default_factory=lambda: _bool("REQUIRE_DEMO_ACCOUNT", True))
     max_risk_fraction: float = field(default_factory=lambda: float(os.getenv("MAX_RISK_FRACTION", "0.01")))
@@ -99,8 +115,27 @@ class Settings:
             raise ValueError("BAR_COUNT must be >= 50 and prediction length must be 5")
         if self.trading_enabled and self.dry_run:
             raise ValueError("TRADING_ENABLED and DRY_RUN cannot both be true")
-        if self.trading_enabled and not self.mt5_login:
-            raise ValueError("MT5_LOGIN is required when live order routing is enabled")
+        if self.trading_enabled and not self.mt5_login and not self.mt5_terminal_path:
+            raise ValueError(
+                "MT5_LOGIN or MT5_TERMINAL_PATH is required when order routing is enabled"
+            )
+        self.order_comment(self.strategy_name)
+        if self.history_sync_days <= 0:
+            raise ValueError("HISTORY_SYNC_DAYS must be positive")
+
+    def order_comment(self, strategy_name: str) -> str:
+        application = self.application_name.strip()
+        strategy = strategy_name.strip()
+        if not application or not strategy:
+            raise ValueError("MT5_APP_NAME and TRADING_STRATEGY cannot be blank")
+        comment = f"{application}|{strategy}"
+        if len(comment) > 31:
+            raise ValueError("MT5 application and strategy comment exceeds 31 characters")
+        return comment
+
+    @property
+    def tracked_magic_numbers(self) -> tuple[int, ...]:
+        return tuple(dict.fromkeys((*self.legacy_magic_numbers, self.magic_number)))
 
 
 SETTINGS = Settings()

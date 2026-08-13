@@ -12,6 +12,7 @@ from config import LOG_DIR, SETTINGS, Settings
 from execution_agent import MT5ExecutionAgent, Side
 from quant_engine import ChronosForecastEngine, ForecastResult, close_prices, true_range_atr
 from sentiment_engine import SentimentEngine, SentimentResult
+from trade_journal import TradeJournal
 
 
 LOGGER = logging.getLogger("crypto_agent")
@@ -46,6 +47,7 @@ class TradingApplication:
         self.settings = settings
         self.quant = ChronosForecastEngine(settings)
         self.execution = MT5ExecutionAgent(settings)
+        self.journal = TradeJournal(settings)
         self.stop_event = asyncio.Event()
         self._sentiment = SentimentResult(0.5, 0, degraded=True)
         self._sentiment_at = 0.0
@@ -65,7 +67,13 @@ class TradingApplication:
             self._sentiment.degraded,
         )
 
-    async def _process_symbol(self, symbol: str, managed: set[str]) -> tuple[str, float]:
+    async def _process_symbol(
+        self,
+        symbol: str,
+        managed: set[str],
+        account: object,
+        snapshot: object,
+    ) -> tuple[str, float]:
         def load_rates() -> tuple[object, object]:
             # MetaTrader5's Python bridge is treated as single-threaded.
             return (
@@ -79,6 +87,19 @@ class TradingApplication:
         m15 = await asyncio.to_thread(self.quant.forecast, close_prices(m15_rates), "15min")
         h1 = await asyncio.to_thread(self.quant.forecast, close_prices(h1_rates), "1h")
         side = combined_side(m15, h1, self._sentiment.score, self.settings.signal_threshold)
+        decision = side.value if side else "HOLD"
+        await asyncio.to_thread(
+            self.journal.record_signal,
+            account=account,
+            snapshot=snapshot,
+            symbol=symbol,
+            strategy=self.settings.strategy_name,
+            m15=m15,
+            h1=h1,
+            sentiment=self._sentiment,
+            atr=atr,
+            decision=decision,
+        )
         LOGGER.info(
             "%s M15=%s/%.3f H1=%s/%.3f ATR=%.5f decision=%s",
             symbol,
@@ -87,16 +108,26 @@ class TradingApplication:
             h1.direction,
             h1.probability,
             atr,
-            side.value if side else "HOLD",
+            decision,
         )
         if side and symbol not in managed:
             plan = await asyncio.to_thread(self.execution.build_order, symbol, side, atr)
-            await asyncio.to_thread(self.execution.submit, plan)
+            try:
+                result = await asyncio.to_thread(self.execution.submit, plan)
+            except Exception as error:
+                await asyncio.to_thread(self.journal.record_submission, account, plan, None, error)
+                raise
+            else:
+                await asyncio.to_thread(self.journal.record_submission, account, plan, result)
         return symbol, atr
 
     async def _run_cycle(self, sentiment: SentimentEngine) -> None:
         await self._refresh_sentiment(sentiment)
         snapshot = await asyncio.to_thread(self.execution.snapshot)
+        account = self.execution.mt5.account_info()
+        if account is None:
+            raise RuntimeError(f"unable to read MT5 account for journal: {self.execution.mt5.last_error()}")
+        await asyncio.to_thread(self.journal.record_account, account, snapshot)
         managed = await asyncio.to_thread(self.execution.managed_position_symbols)
         LOGGER.info(
             "account equity=%.2f free_margin=%.2f positions=%d",
@@ -107,11 +138,17 @@ class TradingApplication:
         atr_by_symbol: dict[str, float] = {}
         for symbol in self.settings.symbols:
             try:
-                name, atr = await self._process_symbol(symbol, managed)
+                name, atr = await self._process_symbol(symbol, managed, account, snapshot)
                 atr_by_symbol[name] = atr
             except Exception:
                 LOGGER.exception("symbol cycle failed for %s", symbol)
         await asyncio.to_thread(self.execution.trail_positions, atr_by_symbol)
+        synced = await asyncio.to_thread(
+            self.journal.sync_mt5_history,
+            self.execution.mt5,
+            account,
+        )
+        LOGGER.info("journal reconciled orders=%d deals=%d", synced["orders"], synced["deals"])
 
     async def run_once(self) -> None:
         """Run one complete dry-run cycle for deployment verification."""
@@ -119,6 +156,10 @@ class TradingApplication:
             raise PermissionError("run_once is restricted to dry-run mode")
         await asyncio.to_thread(self.quant.load)
         await asyncio.to_thread(self.execution.connect)
+        account = self.execution.mt5.account_info()
+        if account is None:
+            raise RuntimeError("MT5 account unavailable after connection")
+        await asyncio.to_thread(self.journal.sync_mt5_history, self.execution.mt5, account)
         try:
             async with SentimentEngine(self.settings) as sentiment:
                 await self._run_cycle(sentiment)
@@ -129,6 +170,11 @@ class TradingApplication:
     async def run(self) -> None:
         await asyncio.to_thread(self.quant.load)  # fail before MT5 routing if local model is absent/invalid
         await asyncio.to_thread(self.execution.connect)
+        account = self.execution.mt5.account_info()
+        if account is None:
+            raise RuntimeError("MT5 account unavailable after connection")
+        synced = await asyncio.to_thread(self.journal.sync_mt5_history, self.execution.mt5, account)
+        LOGGER.info("startup journal sync orders=%d deals=%d", synced["orders"], synced["deals"])
         LOGGER.info(
             "MT5 connected mode=%s routing=%s",
             "DEMO required" if self.settings.require_demo_account else "configured account",

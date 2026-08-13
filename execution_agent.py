@@ -45,6 +45,7 @@ class OrderPlan:
     take_profit: float
     atr: float
     risk_amount: float
+    strategy_name: str = "ChronosFinBERT"
 
 
 class MT5ExecutionAgent:
@@ -148,16 +149,17 @@ class MT5ExecutionAgent:
         min_distance = float(info.trade_stops_level) * float(info.point)
         if abs(entry - stop) < min_distance or abs(take_profit - entry) < min_distance:
             raise ValueError(f"{symbol} SL/TP violates broker minimum stop distance")
-        risk_amount = float(account.equity) * self.settings.max_risk_fraction
+        risk_budget = float(account.equity) * self.settings.max_risk_fraction
         loss_per_lot = self._loss_per_lot(symbol, side, entry, stop, info)
         volume = self._round_volume(
-            risk_amount / loss_per_lot,
+            risk_budget / loss_per_lot,
             float(info.volume_min),
             float(info.volume_max),
             float(info.volume_step),
         )
         if volume <= 0:
             raise ValueError(f"risk budget is below {symbol}'s minimum lot")
+        risk_amount = volume * loss_per_lot
         margin = self.mt5.order_calc_margin(
             self.mt5.ORDER_TYPE_BUY if side is Side.BUY else self.mt5.ORDER_TYPE_SELL,
             symbol,
@@ -166,7 +168,17 @@ class MT5ExecutionAgent:
         )
         if margin is None or margin > account.margin_free * self.settings.max_margin_fraction:
             raise ValueError(f"{symbol} order exceeds available-margin policy")
-        return OrderPlan(symbol, side, volume, entry, stop, take_profit, atr, risk_amount)
+        return OrderPlan(
+            symbol,
+            side,
+            volume,
+            entry,
+            stop,
+            take_profit,
+            atr,
+            risk_amount,
+            self.settings.strategy_name,
+        )
 
     def submit(self, plan: OrderPlan) -> Any:
         if not self.settings.trading_enabled or self.settings.dry_run:
@@ -182,7 +194,7 @@ class MT5ExecutionAgent:
             "tp": plan.take_profit,
             "deviation": self.settings.max_deviation_points,
             "magic": self.settings.magic_number,
-            "comment": "hybrid-chronos-finbert",
+            "comment": self.settings.order_comment(plan.strategy_name),
             "type_time": self.mt5.ORDER_TIME_GTC,
             "type_filling": self.mt5.ORDER_FILLING_IOC,
         }

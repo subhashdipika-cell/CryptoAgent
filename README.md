@@ -10,6 +10,8 @@ An asynchronous Windows trading service for BTCUSD and XAUUSD. Chronos-2 runs lo
 - Risk is capped at 1% of current equity and rounded down to broker lot steps.
 - A separate margin policy limits each order to 25% of free margin.
 - One managed position per symbol prevents repeated entries each loop.
+- Entry orders use Expert ID `26081301` and the Comment
+  `CryptoAgent|ChronosFinBERT`, identifying both application and strategy.
 - Cloud/API failures return neutral sentiment (`0.5`) and never stop position management.
 
 These controls prevent accidental routing; they do not establish that the strategy is profitable. Forward-test on DEMO with broker-specific spreads, slippage, symbol names, and contract sizes before considering any change in account mode.
@@ -51,6 +53,23 @@ This workstation's verified Vantage DEMO terminal uses `BTCUSD` and the broker-s
 `XAUUSD+`. The convenience launcher pins that terminal and forces the safety flags:
 
 ```powershell
+.\Start-CryptoAgent.bat
+```
+
+Double-click `Start-CryptoAgent.bat` to enable order routing to the verified DEMO
+terminal. The launcher forces `REQUIRE_DEMO_ACCOUNT=true`, and the runtime refuses
+to connect if the selected account is not DEMO. It retains the 1% equity risk cap,
+initial SL/TP requirement, and ATR trailing controls. Validate its local terminal,
+environment, model, and symbol configuration without starting the loop:
+
+```powershell
+.\Start-CryptoAgent.bat --check
+```
+
+The PowerShell launcher remains the dry-run option when custom path or symbol
+parameters are needed:
+
+```powershell
 .\Start-CryptoAgent-Demo.ps1
 ```
 
@@ -72,6 +91,33 @@ Logs rotate under `logs/trading.log`. The loop requests 500 completed bars (the 
 
 `autogen_orchestration.py` defines an optional Microsoft AutoGen round-robin implementer/reviewer team using `Qwen2.5-Coder-7B-Instruct` through a local OpenAI-compatible endpoint. It is deliberately outside the trading runtime and has no MT5 tools. Set `QWEN_BASE_URL`, start the local Qwen server, and call `review_task()` from a maintenance script when code review is wanted.
 
+## Trade journal and performance report
+
+CryptoAgent continuously writes an ignored local SQLite journal to
+`data/trade_journal.db`. It stores account/equity snapshots, forecast decisions,
+submission plans, and reconciled broker orders/deals. Reconciliation is idempotent
+and recognizes both legacy Expert ID `84010310` and current ID `26081301`.
+
+Generate fresh reports by double-clicking `Generate-Performance-Report.bat`, or run:
+
+```powershell
+.\.venv\Scripts\python.exe performance_report.py --sync
+```
+
+Outputs under `reports/` include:
+
+- `performance_report.html`: overall metrics and strategy/asset breakdown.
+- `completed_trades.csv`: one row per completed position with net P/L and exit reason.
+- `deals.csv` and `orders.csv`: reconciled broker records.
+- `submissions.csv`: requested/executed price, planned risk, ATR, SL/TP, and errors.
+- `signals.csv`: M15/H1 forecasts, sentiment, ATR, and BUY/SELL/HOLD decisions.
+- `equity_snapshots.csv`: account equity, free margin, leverage, and position count.
+
+Realized metrics come from MT5 deals and include profit, commission, swap, and fees.
+Open positions and unfilled orders are deliberately excluded. Broker comments are
+descriptive and can be overwritten on SL/TP exits, so Expert ID is the primary
+attribution key. Back up the SQLite file if the journal must survive machine loss.
+
 ## Module map
 
 - `config.py`: offline flags, credentials, account/risk gates, paths.
@@ -80,3 +126,5 @@ Logs rotate under `logs/trading.log`. The loop requests 500 completed bars (the 
 - `execution_agent.py`: MT5 state, sizing, initial SL/TP order payload, trailing stops.
 - `main.py`: scheduling, logs, signal consensus, clean shutdown.
 - `autogen_orchestration.py`: isolated Qwen-backed implementation/review agents.
+- `trade_journal.py`: SQLite decision, account, submission, order, and deal journal.
+- `performance_report.py`: MT5 reconciliation and HTML/CSV performance exports.
