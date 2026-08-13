@@ -2,7 +2,7 @@ import unittest
 from types import SimpleNamespace
 
 from config import Settings
-from execution_agent import MT5ExecutionAgent, Side
+from execution_agent import MT5ExecutionAgent, OrderPlan, Side
 
 
 class FakeMT5:
@@ -37,7 +37,38 @@ class FakeMT5:
         return (0, "ok")
 
 
+class FakeSubmitMT5(FakeMT5):
+    TRADE_ACTION_DEAL = 1
+    ORDER_TIME_GTC = 0
+    ORDER_FILLING_IOC = 1
+    TRADE_RETCODE_DONE = 10009
+
+    def __init__(self):
+        self.request = None
+
+    def order_check(self, request):
+        self.request = request
+        return SimpleNamespace(retcode=0)
+
+    def order_send(self, request):
+        self.request = request
+        return SimpleNamespace(retcode=self.TRADE_RETCODE_DONE, comment="Request executed")
+
+
 class ExecutionTests(unittest.TestCase):
+    def test_submitted_order_identifies_cryptoagent(self):
+        settings = Settings(
+            trading_enabled=True,
+            dry_run=False,
+            mt5_login=12345,
+            order_comment="placed by CryptoAgent",
+        )
+        fake = FakeSubmitMT5()
+        agent = MT5ExecutionAgent(settings, fake)
+        plan = OrderPlan("BTCUSD", Side.BUY, 0.01, 100.0, 98.0, 104.0, 1.0, 2.0)
+        agent.submit(plan)
+        self.assertEqual(fake.request["comment"], "placed by CryptoAgent")
+
     def test_routing_can_attach_to_authenticated_demo_terminal(self):
         settings = Settings(
             trading_enabled=True,

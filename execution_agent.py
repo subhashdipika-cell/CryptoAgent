@@ -182,7 +182,7 @@ class MT5ExecutionAgent:
             "tp": plan.take_profit,
             "deviation": self.settings.max_deviation_points,
             "magic": self.settings.magic_number,
-            "comment": "hybrid-chronos-finbert",
+            "comment": self.settings.order_comment,
             "type_time": self.mt5.ORDER_TIME_GTC,
             "type_filling": self.mt5.ORDER_FILLING_IOC,
         }

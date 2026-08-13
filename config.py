@@ -72,6 +72,9 @@ class Settings:
     mt5_terminal_path: str = field(default_factory=lambda: os.getenv("MT5_TERMINAL_PATH", ""))
     mt5_timeout_ms: int = 20_000
     magic_number: int = field(default_factory=lambda: int(os.getenv("MT5_MAGIC", "84010310")))
+    order_comment: str = field(
+        default_factory=lambda: os.getenv("MT5_ORDER_COMMENT", "placed by CryptoAgent")
+    )
     trading_enabled: bool = field(default_factory=lambda: _bool("TRADING_ENABLED"))
     require_demo_account: bool = field(default_factory=lambda: _bool("REQUIRE_DEMO_ACCOUNT", True))
     max_risk_fraction: float = field(default_factory=lambda: float(os.getenv("MAX_RISK_FRACTION", "0.01")))
@@ -103,6 +106,8 @@ class Settings:
             raise ValueError(
                 "MT5_LOGIN or MT5_TERMINAL_PATH is required when order routing is enabled"
             )
+        if not self.order_comment.strip() or len(self.order_comment) > 31:
+            raise ValueError("MT5_ORDER_COMMENT must contain 1 to 31 characters")
 
 
 SETTINGS = Settings()
