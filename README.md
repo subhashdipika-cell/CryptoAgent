@@ -134,6 +134,19 @@ adapters:
 Neither checkpoint is finance-specific. It must beat the asset-specific baseline
 on BTC and Gold walk-forward/forward data before it can influence execution.
 
+## Strategy backtest
+
+Double-click `Run-Strategy-Backtest.bat` to replay the locked calibrated policy
+over its chronological policy-holdout period. The broker-aware proxy uses MT5
+historical spread, next-M15-bar entry, 0.03 commission per side, 10 points of
+adverse slippage per fill, dynamic 2% risk sizing, broker volume steps, hard
+SL/TP, and conservative stop-first resolution for ambiguous OHLC bars.
+
+Outputs are `strategy_backtest.html`, `strategy_backtest.json`, and
+`strategy_backtest_trades.csv` under `reports/`. This is a policy-holdout replay,
+not a second untouched test or forward evidence; retain DEMO execution until a
+separate forward sample is large enough to assess.
+
 ## AutoGen implementation team
 
 `autogen_orchestration.py` defines an optional Microsoft AutoGen round-robin implementer/reviewer team using `Qwen2.5-Coder-7B-Instruct` through a local OpenAI-compatible endpoint. It is deliberately outside the trading runtime and has no MT5 tools. Set `QWEN_BASE_URL`, start the local Qwen server, and call `review_task()` from a maintenance script when code review is wanted.
@@ -173,6 +186,7 @@ attribution key. Back up the SQLite file if the journal must survive machine los
 - `asset_predictive_engine.py`: separate locally fitted BTC and Gold direct-return models.
 - `foundation_backends.py`: offline IBM TTM-R3 and Google TimesFM 2.5 adapters.
 - `predictive_validation.py`: completed-bar walk-forward validation and reports.
+- `strategy_backtest.py`: broker-aware calibrated-policy execution replay.
 - `sentiment_engine.py`: pooled async RSS/API collection and FinBERT fallback.
 - `execution_agent.py`: MT5 state, sizing, initial SL/TP order payload, trailing stops.
 - `main.py`: scheduling, logs, signal consensus, clean shutdown.
