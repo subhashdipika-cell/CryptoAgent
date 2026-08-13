@@ -1,6 +1,11 @@
-# Hybrid Chronos + FinBERT MT5 Agent
+# Asset-Specific BTC/Gold + Chronos + FinBERT MT5 Agent
 
 An asynchronous Windows trading service for BTCUSD and XAUUSD. Chronos-2 runs locally on CPU from pre-staged files; news and FinBERT sentiment are isolated behind an asynchronous, neutral-on-failure adapter. MT5 is the only execution interface.
+
+Dedicated `BTC-DirectRidge` and `XAU-DirectRidge` pipelines are fitted independently
+on completed broker OHLC bars. They use different context lengths, regularization,
+minimum edge, and cost assumptions. The default `PREDICTIVE_MODE=shadow` records
+their forecasts without allowing them to alter Chronos decisions or orders.
 
 ## Safety defaults
 
@@ -87,6 +92,38 @@ Run deterministic tests without a terminal connection:
 
 Logs rotate under `logs/trading.log`. The loop requests 500 completed bars (the forming bar is excluded) for both M15 and H1. Both timeframe forecasts must agree before sentiment can contribute to a trade decision. Trailing activates after +1.5 ATR and maintains a 1.0 ATR distance.
 
+## Dedicated model validation
+
+Generate a leakage-free walk-forward report from 3,000 completed MT5 bars by
+double-clicking `Generate-Predictive-Validation.bat`, or run:
+
+```powershell
+.\.venv\Scripts\python.exe predictive_validation.py --bars 3000
+```
+
+The report writes `predictive_validation.html`, JSON methodology/results, and
+fold-level CSV evidence under `reports/`. It subtracts explicit asset cost
+assumptions, but does not reproduce tick-level fills. A numerical PASS is advisory:
+the report always marks every candidate `SHADOW_ONLY`; deployment requires an
+explicit configuration change after reviewing forward evidence.
+
+Two general-purpose foundation challengers are supported through strictly offline
+adapters:
+
+- `ibm-granite/granite-timeseries-ttm-r3`: preferred CPU challenger because its
+  family is much smaller. Install `requirements-candidates.txt`, then stage `ttm`.
+- `google/timesfm-2.5-200m-transformers`: PyTorch Transformers equivalent of the
+  200M TimesFM 2.5 checkpoint. It is an accuracy challenger with a substantially
+  larger RAM footprint; stage `timesfm` only for bounded validation.
+
+```powershell
+.\.venv\Scripts\python.exe stage_candidate_models.py ttm
+.\.venv\Scripts\python.exe stage_candidate_models.py timesfm
+```
+
+Neither checkpoint is finance-specific. It must beat the asset-specific baseline
+on BTC and Gold walk-forward/forward data before it can influence execution.
+
 ## AutoGen implementation team
 
 `autogen_orchestration.py` defines an optional Microsoft AutoGen round-robin implementer/reviewer team using `Qwen2.5-Coder-7B-Instruct` through a local OpenAI-compatible endpoint. It is deliberately outside the trading runtime and has no MT5 tools. Set `QWEN_BASE_URL`, start the local Qwen server, and call `review_task()` from a maintenance script when code review is wanted.
@@ -111,6 +148,7 @@ Outputs under `reports/` include:
 - `deals.csv` and `orders.csv`: reconciled broker records.
 - `submissions.csv`: requested/executed price, planned risk, ATR, SL/TP, and errors.
 - `signals.csv`: M15/H1 forecasts, sentiment, ATR, and BUY/SELL/HOLD decisions.
+- `model_forecasts.csv`: shadow/active per-model predictions, confidence, and edge.
 - `equity_snapshots.csv`: account equity, free margin, leverage, and position count.
 
 Realized metrics come from MT5 deals and include profit, commission, swap, and fees.
@@ -122,6 +160,9 @@ attribution key. Back up the SQLite file if the journal must survive machine los
 
 - `config.py`: offline flags, credentials, account/risk gates, paths.
 - `quant_engine.py`: compact OHLC conversion, ATR, Chronos inference, directional mapping.
+- `asset_predictive_engine.py`: separate locally fitted BTC and Gold direct-return models.
+- `foundation_backends.py`: offline IBM TTM-R3 and Google TimesFM 2.5 adapters.
+- `predictive_validation.py`: completed-bar walk-forward validation and reports.
 - `sentiment_engine.py`: pooled async RSS/API collection and FinBERT fallback.
 - `execution_agent.py`: MT5 state, sizing, initial SL/TP order payload, trailing stops.
 - `main.py`: scheduling, logs, signal consensus, clean shutdown.

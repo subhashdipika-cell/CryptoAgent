@@ -9,6 +9,7 @@ import time
 from logging.handlers import RotatingFileHandler
 
 from config import LOG_DIR, SETTINGS, Settings
+from asset_predictive_engine import DedicatedAssetForecastEngine
 from execution_agent import MT5ExecutionAgent, Side
 from quant_engine import ChronosForecastEngine, ForecastResult, close_prices, true_range_atr
 from sentiment_engine import SentimentEngine, SentimentResult
@@ -46,6 +47,7 @@ class TradingApplication:
         settings.validate()
         self.settings = settings
         self.quant = ChronosForecastEngine(settings)
+        self.dedicated_quant = DedicatedAssetForecastEngine(settings)
         self.execution = MT5ExecutionAgent(settings)
         self.journal = TradeJournal(settings)
         self.stop_event = asyncio.Event()
@@ -84,8 +86,53 @@ class TradingApplication:
         m15_rates, h1_rates = await asyncio.to_thread(load_rates)
         atr = true_range_atr(m15_rates, self.settings.atr_period)
         # A single model instance is intentionally called serially; torch pipelines are not assumed thread-safe.
-        m15 = await asyncio.to_thread(self.quant.forecast, close_prices(m15_rates), "15min")
-        h1 = await asyncio.to_thread(self.quant.forecast, close_prices(h1_rates), "1h")
+        try:
+            direct_m15 = await asyncio.to_thread(
+                self.dedicated_quant.forecast, symbol, m15_rates, "15min"
+            )
+            direct_h1 = await asyncio.to_thread(
+                self.dedicated_quant.forecast, symbol, h1_rates, "1h"
+            )
+        except Exception:
+            if self.settings.predictive_mode == "dedicated":
+                raise
+            LOGGER.exception("%s dedicated shadow forecast unavailable", symbol)
+            direct_m15 = direct_h1 = None
+        if self.settings.predictive_mode == "dedicated":
+            m15, h1 = direct_m15, direct_h1
+        else:
+            # Shadow mode collects comparable live forecasts without changing orders.
+            m15 = await asyncio.to_thread(self.quant.forecast, close_prices(m15_rates), "15min")
+            h1 = await asyncio.to_thread(self.quant.forecast, close_prices(h1_rates), "1h")
+            if direct_m15 is not None and direct_h1 is not None:
+                await asyncio.to_thread(
+                    self.journal.record_model_forecast,
+                    account, symbol, "M15", direct_m15, "shadow",
+                )
+                await asyncio.to_thread(
+                    self.journal.record_model_forecast,
+                    account, symbol, "H1", direct_h1, "shadow",
+                )
+                LOGGER.info(
+                    "%s shadow %s M15=%s/%.3f/%+.1fbp H1=%s/%.3f/%+.1fbp",
+                    symbol,
+                    direct_m15.model_name,
+                    direct_m15.direction,
+                    direct_m15.probability,
+                    direct_m15.edge_bps,
+                    direct_h1.direction,
+                    direct_h1.probability,
+                    direct_h1.edge_bps,
+                )
+        if self.settings.predictive_mode == "dedicated":
+            await asyncio.to_thread(
+                self.journal.record_model_forecast,
+                account, symbol, "M15", m15, "active",
+            )
+            await asyncio.to_thread(
+                self.journal.record_model_forecast,
+                account, symbol, "H1", h1, "active",
+            )
         side = combined_side(m15, h1, self._sentiment.score, self.settings.signal_threshold)
         decision = side.value if side else "HOLD"
         await asyncio.to_thread(
@@ -101,8 +148,9 @@ class TradingApplication:
             decision=decision,
         )
         LOGGER.info(
-            "%s M15=%s/%.3f H1=%s/%.3f ATR=%.5f decision=%s",
+            "%s model=%s M15=%s/%.3f H1=%s/%.3f ATR=%.5f decision=%s",
             symbol,
+            m15.model_name,
             m15.direction,
             m15.probability,
             h1.direction,
@@ -154,7 +202,8 @@ class TradingApplication:
         """Run one complete dry-run cycle for deployment verification."""
         if self.settings.trading_enabled or not self.settings.dry_run:
             raise PermissionError("run_once is restricted to dry-run mode")
-        await asyncio.to_thread(self.quant.load)
+        if self.settings.predictive_mode == "shadow":
+            await asyncio.to_thread(self.quant.load)
         await asyncio.to_thread(self.execution.connect)
         account = self.execution.mt5.account_info()
         if account is None:
@@ -168,7 +217,9 @@ class TradingApplication:
             LOGGER.info("MT5 DEMO smoke-test session shut down cleanly")
 
     async def run(self) -> None:
-        await asyncio.to_thread(self.quant.load)  # fail before MT5 routing if local model is absent/invalid
+        if self.settings.predictive_mode == "shadow":
+            # Fail before MT5 routing if the active shadow baseline is absent/invalid.
+            await asyncio.to_thread(self.quant.load)
         await asyncio.to_thread(self.execution.connect)
         account = self.execution.mt5.account_info()
         if account is None:
@@ -176,9 +227,10 @@ class TradingApplication:
         synced = await asyncio.to_thread(self.journal.sync_mt5_history, self.execution.mt5, account)
         LOGGER.info("startup journal sync orders=%d deals=%d", synced["orders"], synced["deals"])
         LOGGER.info(
-            "MT5 connected mode=%s routing=%s",
+            "MT5 connected mode=%s routing=%s predictive_mode=%s",
             "DEMO required" if self.settings.require_demo_account else "configured account",
             "ENABLED" if self.settings.trading_enabled and not self.settings.dry_run else "DRY-RUN",
+            self.settings.predictive_mode.upper(),
         )
         try:
             async with SentimentEngine(self.settings) as sentiment:

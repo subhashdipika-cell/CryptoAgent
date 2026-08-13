@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 import threading
+import json
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -50,6 +51,21 @@ CREATE TABLE IF NOT EXISTS signals (
     free_margin REAL NOT NULL,
     expert_id INTEGER NOT NULL,
     order_comment TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS model_forecasts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    recorded_at TEXT NOT NULL,
+    account_login INTEGER NOT NULL,
+    server TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    timeframe TEXT NOT NULL,
+    model_name TEXT NOT NULL,
+    mode TEXT NOT NULL,
+    direction TEXT NOT NULL,
+    confidence REAL NOT NULL,
+    edge_bps REAL NOT NULL,
+    predictions_json TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS submissions (
@@ -123,6 +139,7 @@ CREATE TABLE IF NOT EXISTS mt5_deals (
 );
 
 CREATE INDEX IF NOT EXISTS idx_signals_symbol_time ON signals(symbol, recorded_at);
+CREATE INDEX IF NOT EXISTS idx_forecasts_symbol_time ON model_forecasts(symbol, recorded_at);
 CREATE INDEX IF NOT EXISTS idx_deals_position ON mt5_deals(position_id, time_msc);
 CREATE INDEX IF NOT EXISTS idx_deals_magic_time ON mt5_deals(expert_id, time_msc);
 """
@@ -176,6 +193,23 @@ class TradeJournal:
                     snapshot.free_margin,
                     snapshot.leverage,
                     snapshot.positions,
+                ),
+            )
+
+    def record_model_forecast(
+        self, account: Any, symbol: str, timeframe: str, forecast: Any, mode: str
+    ) -> None:
+        values = [float(value) for value in forecast.predictions]
+        with self._lock, self._connect() as connection:
+            connection.execute(
+                """INSERT INTO model_forecasts
+                (recorded_at, account_login, server, symbol, timeframe, model_name,
+                 mode, direction, confidence, edge_bps, predictions_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    utc_now(), int(account.login), str(account.server), symbol, timeframe,
+                    forecast.model_name, mode, forecast.direction, float(forecast.probability),
+                    float(forecast.edge_bps), json.dumps(values),
                 ),
             )
 
@@ -361,7 +395,10 @@ class TradeJournal:
         return {"orders": len(tracked_orders), "deals": len(tracked_deals)}
 
     def rows(self, table: str) -> list[sqlite3.Row]:
-        allowed = {"account_snapshots", "signals", "submissions", "mt5_orders", "mt5_deals"}
+        allowed = {
+            "account_snapshots", "signals", "model_forecasts", "submissions",
+            "mt5_orders", "mt5_deals",
+        }
         if table not in allowed:
             raise ValueError(f"unsupported journal table: {table}")
         with self._connect() as connection:

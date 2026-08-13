@@ -234,6 +234,7 @@ def generate_report(settings: Settings = SETTINGS) -> dict[str, Path]:
         ("mt5_deals", "deals.csv"),
         ("mt5_orders", "orders.csv"),
         ("signals", "signals.csv"),
+        ("model_forecasts", "model_forecasts.csv"),
         ("account_snapshots", "equity_snapshots.csv"),
         ("submissions", "submissions.csv"),
     ):

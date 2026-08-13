@@ -14,6 +14,8 @@ from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent
 MODEL_DIR = Path(os.getenv("CHRONOS_MODEL_PATH", BASE_DIR / "models" / "chronos-2-base"))
+TTM_MODEL_DIR = Path(os.getenv("TTM_MODEL_PATH", BASE_DIR / "models" / "granite-ttm-r3"))
+TIMESFM_MODEL_DIR = Path(os.getenv("TIMESFM_MODEL_PATH", BASE_DIR / "models" / "timesfm-2.5-200m-transformers"))
 LOG_DIR = Path(os.getenv("LOG_DIR", BASE_DIR / "logs"))
 DATA_DIR = Path(os.getenv("DATA_DIR", BASE_DIR / "data"))
 REPORT_DIR = Path(os.getenv("REPORT_DIR", BASE_DIR / "reports"))
@@ -45,6 +47,8 @@ class Settings:
     prediction_length: int = 5
     loop_interval_seconds: float = 60.0
     model_path: Path = MODEL_DIR
+    ttm_model_path: Path = TTM_MODEL_DIR
+    timesfm_model_path: Path = TIMESFM_MODEL_DIR
     max_model_ram_bytes: int = 2 * 1024**3
     torch_threads: int = 3
 
@@ -101,6 +105,15 @@ class Settings:
     trailing_distance_atr: float = 1.0
     max_deviation_points: int = 20
     signal_threshold: float = 0.62
+    predictive_mode: str = field(
+        default_factory=lambda: os.getenv("PREDICTIVE_MODE", "shadow").strip().lower()
+    )
+    validation_bars: int = field(
+        default_factory=lambda: int(os.getenv("PREDICTIVE_VALIDATION_BARS", "3000"))
+    )
+    validation_min_folds: int = field(
+        default_factory=lambda: int(os.getenv("PREDICTIVE_MIN_FOLDS", "30"))
+    )
     dry_run: bool = field(default_factory=lambda: _bool("DRY_RUN", True))
 
     qwen_base_url: str = field(default_factory=lambda: os.getenv("QWEN_BASE_URL", "http://127.0.0.1:1234/v1"))
@@ -122,6 +135,10 @@ class Settings:
         self.order_comment(self.strategy_name)
         if self.history_sync_days <= 0:
             raise ValueError("HISTORY_SYNC_DAYS must be positive")
+        if self.predictive_mode not in {"shadow", "dedicated"}:
+            raise ValueError("PREDICTIVE_MODE must be shadow or dedicated")
+        if self.validation_bars < 500 or self.validation_min_folds < 20:
+            raise ValueError("predictive validation requires >=500 bars and >=20 folds")
 
     def order_comment(self, strategy_name: str) -> str:
         application = self.application_name.strip()
