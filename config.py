@@ -19,6 +19,10 @@ TIMESFM_MODEL_DIR = Path(os.getenv("TIMESFM_MODEL_PATH", BASE_DIR / "models" / "
 LOG_DIR = Path(os.getenv("LOG_DIR", BASE_DIR / "logs"))
 DATA_DIR = Path(os.getenv("DATA_DIR", BASE_DIR / "data"))
 REPORT_DIR = Path(os.getenv("REPORT_DIR", BASE_DIR / "reports"))
+POLICY_DIR = Path(os.getenv("POLICY_DIR", BASE_DIR / "policies"))
+DECISION_POLICY_PATH = Path(
+    os.getenv("DECISION_POLICY_PATH", POLICY_DIR / "asset_decision_policy.json")
+)
 
 # Set these before chronos/transformers is imported anywhere else.
 os.environ["HF_HUB_OFFLINE"] = "1"
@@ -89,6 +93,7 @@ class Settings:
         )
     )
     report_dir: Path = REPORT_DIR
+    decision_policy_path: Path = DECISION_POLICY_PATH
     history_sync_days: int = field(
         default_factory=lambda: int(os.getenv("HISTORY_SYNC_DAYS", "3650"))
     )
@@ -135,8 +140,8 @@ class Settings:
         self.order_comment(self.strategy_name)
         if self.history_sync_days <= 0:
             raise ValueError("HISTORY_SYNC_DAYS must be positive")
-        if self.predictive_mode not in {"shadow", "dedicated"}:
-            raise ValueError("PREDICTIVE_MODE must be shadow or dedicated")
+        if self.predictive_mode not in {"shadow", "calibrated", "dedicated"}:
+            raise ValueError("PREDICTIVE_MODE must be shadow, calibrated, or dedicated")
         if self.validation_bars < 500 or self.validation_min_folds < 20:
             raise ValueError("predictive validation requires >=500 bars and >=20 folds")
 

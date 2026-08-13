@@ -4,8 +4,10 @@ An asynchronous Windows trading service for BTCUSD and XAUUSD. Chronos-2 runs lo
 
 Dedicated `BTC-DirectRidge` and `XAU-DirectRidge` pipelines are fitted independently
 on completed broker OHLC bars. They use different context lengths, regularization,
-minimum edge, and cost assumptions. The default `PREDICTIVE_MODE=shadow` records
-their forecasts without allowing them to alter Chronos decisions or orders.
+minimum edge, and cost assumptions. The production launcher uses
+`PREDICTIVE_MODE=calibrated`: only a policy that passes a chronological holdout
+gate may influence DEMO orders. Failed or missing policies fail closed with
+`UNVALIDATED_MODEL`.
 
 ## Safety defaults
 
@@ -103,9 +105,17 @@ double-clicking `Generate-Predictive-Validation.bat`, or run:
 
 The report writes `predictive_validation.html`, JSON methodology/results, and
 fold-level CSV evidence under `reports/`. It subtracts explicit asset cost
-assumptions, but does not reproduce tick-level fills. A numerical PASS is advisory:
-the report always marks every candidate `SHADOW_ONLY`; deployment requires an
-explicit configuration change after reviewing forward evidence.
+assumptions, but does not reproduce tick-level fills. The complete M15+H1 policy
+uses the earlier 65% of chronological folds to select thresholds and the untouched
+later 35% for its deployment gate. Individual-timeframe PASS results remain
+advisory and cannot promote a complete strategy.
+
+Every signal records a decision reason: `ENTRY_SIGNAL`, `TIMEFRAME_DISAGREEMENT`,
+`INSUFFICIENT_EDGE`, `UNVALIDATED_MODEL`, `MODEL_POLICY_MISMATCH`, or
+`POSITION_ALREADY_OPEN`. A signal that cannot satisfy broker size, margin, or
+risk constraints is recorded as `ORDER_PLAN_REJECTED`. When sentiment is degraded, its weight is omitted and
+the quantitative timeframes are renormalized instead of assigning permanent
+neutral weight.
 
 Two general-purpose foundation challengers are supported through strictly offline
 adapters:

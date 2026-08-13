@@ -21,6 +21,6 @@ $env:MT5_XAU_SYMBOL = $GoldSymbol
 $env:REQUIRE_DEMO_ACCOUNT = "true"
 $env:TRADING_ENABLED = "false"
 $env:DRY_RUN = "true"
-$env:PREDICTIVE_MODE = "shadow"
+$env:PREDICTIVE_MODE = "calibrated"
 
 & $python (Join-Path $projectRoot "main.py")

@@ -248,6 +248,7 @@ def generate_report(settings: Settings = SETTINGS) -> dict[str, Path]:
     overall = metrics(trades)
     accounts = sorted({f"{trade.server} / {trade.account_login}" for trade in trades})
     snapshots = journal.rows("account_snapshots")
+    signal_rows = journal.rows("signals")
     latest_equity = float(snapshots[-1]["equity"]) if snapshots else None
     groups: dict[tuple[str, str], list[CompletedTrade]] = defaultdict(list)
     for trade in trades:
@@ -261,6 +262,14 @@ def generate_report(settings: Settings = SETTINGS) -> dict[str, Path]:
     trade_rows = [
         [trade.exit_time, trade.strategy, trade.symbol, trade.side, trade.entry_volume, trade.entry_price, trade.exit_price, trade.slippage, trade.net_profit, trade.exit_reason]
         for trade in reversed(trades[-100:])
+    ]
+    hold_reasons: dict[tuple[str, str], int] = defaultdict(int)
+    for row in signal_rows:
+        if row["decision"] == "HOLD":
+            hold_reasons[(str(row["symbol"]), str(row["decision_reason"]))] += 1
+    hold_rows = [
+        [symbol, reason, count]
+        for (symbol, reason), count in sorted(hold_reasons.items())
     ]
     generated_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     report = f"""<!doctype html>
@@ -281,6 +290,8 @@ th:first-child,td:first-child{{text-align:left}}th{{color:#93c5fd}}.note{{color:
 {_table(['Strategy','Symbol','Trades','Win rate %','Net P/L','Profit factor','Max drawdown'], group_rows)}
 <h2>Latest completed trades</h2>
 {_table(['MT5 exit timestamp','Strategy','Symbol','Side','Volume','Entry','Exit','Slippage','Net P/L','Exit reason'], trade_rows)}
+<h2>Decision diagnostics</h2>
+{_table(['Symbol','HOLD reason','Cycles'], hold_rows)}
 <p class="note">Attribution uses Expert IDs {html.escape(str(settings.tracked_magic_numbers))}; broker comments are descriptive and may be overwritten on SL/TP exits.</p>
 </body></html>"""
     report_path = output / "performance_report.html"

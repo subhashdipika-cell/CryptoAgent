@@ -13,8 +13,8 @@ set "MT5_BTC_SYMBOL=BTCUSD"
 set "MT5_XAU_SYMBOL=XAUUSD+"
 set "MT5_MAGIC=26081301"
 set "MT5_APP_NAME=CryptoAgent"
-set "TRADING_STRATEGY=ChronosFinBERT"
-set "PREDICTIVE_MODE=shadow"
+set "TRADING_STRATEGY=AssetCalibrated"
+set "PREDICTIVE_MODE=calibrated"
 
 rem Order routing is enabled, but the runtime must verify a DEMO account.
 set "REQUIRE_DEMO_ACCOUNT=true"
@@ -45,7 +45,7 @@ if /I "%~1"=="--check" (
     echo Expert ID: %MT5_MAGIC% ^(CryptoAgent^)
     echo Comment:   %MT5_APP_NAME%^|%TRADING_STRATEGY%
     echo Mode:     DEMO only - order routing ENABLED
-    echo Predictor: Dedicated BTC/XAU models in SHADOW validation mode
+    echo Predictor: Dedicated BTC/XAU models with holdout-calibrated policy
     echo Risk:     Maximum 1%% of equity per trade
     exit /b 0
 )

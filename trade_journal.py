@@ -51,6 +51,10 @@ CREATE TABLE IF NOT EXISTS signals (
     free_margin REAL NOT NULL,
     expert_id INTEGER NOT NULL,
     order_comment TEXT NOT NULL
+    ,decision_reason TEXT NOT NULL DEFAULT 'LEGACY_UNKNOWN'
+    ,calibrated_score REAL
+    ,required_score REAL
+    ,active_model TEXT
 );
 
 CREATE TABLE IF NOT EXISTS model_forecasts (
@@ -161,6 +165,20 @@ class TradeJournal:
         self._lock = threading.RLock()
         with self._connect() as connection:
             connection.executescript(SCHEMA)
+            self._migrate_schema(connection)
+
+    @staticmethod
+    def _migrate_schema(connection: sqlite3.Connection) -> None:
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(signals)")}
+        additions = {
+            "decision_reason": "TEXT NOT NULL DEFAULT 'LEGACY_UNKNOWN'",
+            "calibrated_score": "REAL",
+            "required_score": "REAL",
+            "active_model": "TEXT",
+        }
+        for name, definition in additions.items():
+            if name not in columns:
+                connection.execute(f"ALTER TABLE signals ADD COLUMN {name} {definition}")
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
@@ -225,6 +243,10 @@ class TradeJournal:
         sentiment: Any,
         atr: float,
         decision: str,
+        decision_reason: str = "LEGACY_UNKNOWN",
+        calibrated_score: float | None = None,
+        required_score: float | None = None,
+        active_model: str | None = None,
     ) -> None:
         comment = self.settings.order_comment(strategy)
         with self._lock, self._connect() as connection:
@@ -233,8 +255,9 @@ class TradeJournal:
                 (recorded_at, account_login, server, symbol, strategy,
                  m15_direction, m15_probability, h1_direction, h1_probability,
                  sentiment, sentiment_degraded, atr, decision, equity, free_margin,
-                 expert_id, order_comment)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                 expert_id, order_comment, decision_reason, calibrated_score,
+                 required_score, active_model)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     utc_now(),
                     int(account.login),
@@ -253,6 +276,10 @@ class TradeJournal:
                     snapshot.free_margin,
                     self.settings.magic_number,
                     comment,
+                    decision_reason,
+                    calibrated_score,
+                    required_score,
+                    active_model,
                 ),
             )
 

@@ -10,6 +10,7 @@ from logging.handlers import RotatingFileHandler
 
 from config import LOG_DIR, SETTINGS, Settings
 from asset_predictive_engine import DedicatedAssetForecastEngine
+from decision_engine import CalibratedDecisionEngine, DecisionResult
 from execution_agent import MT5ExecutionAgent, Side
 from quant_engine import ChronosForecastEngine, ForecastResult, close_prices, true_range_atr
 from sentiment_engine import SentimentEngine, SentimentResult
@@ -48,6 +49,7 @@ class TradingApplication:
         self.settings = settings
         self.quant = ChronosForecastEngine(settings)
         self.dedicated_quant = DedicatedAssetForecastEngine(settings)
+        self.decisions = CalibratedDecisionEngine(settings.decision_policy_path)
         self.execution = MT5ExecutionAgent(settings)
         self.journal = TradeJournal(settings)
         self.stop_event = asyncio.Event()
@@ -94,11 +96,11 @@ class TradingApplication:
                 self.dedicated_quant.forecast, symbol, h1_rates, "1h"
             )
         except Exception:
-            if self.settings.predictive_mode == "dedicated":
+            if self.settings.predictive_mode in {"calibrated", "dedicated"}:
                 raise
             LOGGER.exception("%s dedicated shadow forecast unavailable", symbol)
             direct_m15 = direct_h1 = None
-        if self.settings.predictive_mode == "dedicated":
+        if self.settings.predictive_mode in {"calibrated", "dedicated"}:
             m15, h1 = direct_m15, direct_h1
         else:
             # Shadow mode collects comparable live forecasts without changing orders.
@@ -124,7 +126,7 @@ class TradingApplication:
                     direct_h1.probability,
                     direct_h1.edge_bps,
                 )
-        if self.settings.predictive_mode == "dedicated":
+        if self.settings.predictive_mode in {"calibrated", "dedicated"}:
             await asyncio.to_thread(
                 self.journal.record_model_forecast,
                 account, symbol, "M15", m15, "active",
@@ -133,8 +135,34 @@ class TradingApplication:
                 self.journal.record_model_forecast,
                 account, symbol, "H1", h1, "active",
             )
-        side = combined_side(m15, h1, self._sentiment.score, self.settings.signal_threshold)
-        decision = side.value if side else "HOLD"
+        if self.settings.predictive_mode in {"calibrated", "dedicated"}:
+            outcome = self.decisions.evaluate(
+                symbol, m15, h1, self._sentiment.score, self._sentiment.degraded,
+                has_position=symbol in managed,
+            )
+        else:
+            side = combined_side(m15, h1, self._sentiment.score, self.settings.signal_threshold)
+            outcome = DecisionResult(
+                side,
+                "ENTRY_SIGNAL" if side else (
+                    "TIMEFRAME_DISAGREEMENT" if m15.direction != h1.direction else "INSUFFICIENT_EDGE"
+                ),
+                0.5,
+                self.settings.signal_threshold,
+                m15.model_name,
+            )
+        plan = None
+        if outcome.side:
+            try:
+                plan = await asyncio.to_thread(
+                    self.execution.build_order, symbol, outcome.side, atr
+                )
+            except Exception as error:
+                LOGGER.warning("%s entry plan rejected: %s", symbol, error)
+                outcome = DecisionResult(
+                    None, "ORDER_PLAN_REJECTED", outcome.score,
+                    outcome.required_score, outcome.model_name,
+                )
         await asyncio.to_thread(
             self.journal.record_signal,
             account=account,
@@ -145,10 +173,14 @@ class TradingApplication:
             h1=h1,
             sentiment=self._sentiment,
             atr=atr,
-            decision=decision,
+            decision=outcome.decision,
+            decision_reason=outcome.reason,
+            calibrated_score=outcome.score,
+            required_score=outcome.required_score,
+            active_model=outcome.model_name,
         )
         LOGGER.info(
-            "%s model=%s M15=%s/%.3f H1=%s/%.3f ATR=%.5f decision=%s",
+            "%s model=%s M15=%s/%.3f H1=%s/%.3f ATR=%.5f decision=%s reason=%s score=%.3f required=%.3f",
             symbol,
             m15.model_name,
             m15.direction,
@@ -156,10 +188,12 @@ class TradingApplication:
             h1.direction,
             h1.probability,
             atr,
-            decision,
+            outcome.decision,
+            outcome.reason,
+            outcome.score,
+            outcome.required_score,
         )
-        if side and symbol not in managed:
-            plan = await asyncio.to_thread(self.execution.build_order, symbol, side, atr)
+        if plan is not None:
             try:
                 result = await asyncio.to_thread(self.execution.submit, plan)
             except Exception as error:

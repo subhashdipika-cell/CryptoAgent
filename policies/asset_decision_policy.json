@@ -1,0 +1,29 @@
+{
+  "methodology": "chronological 65% calibration and 35% untouched holdout",
+  "policies": [
+    {
+      "symbol": "BTCUSD",
+      "model_name": "BTC-DirectRidge",
+      "enabled": false,
+      "confidence_threshold": 0.52,
+      "m15_edge_bps": 10.0,
+      "h1_edge_bps": 10.0,
+      "calibration_trades": 6,
+      "holdout_trades": 4,
+      "holdout_net_bps": -87.19296106835283,
+      "holdout_profit_factor": 0.0
+    },
+    {
+      "symbol": "XAUUSD+",
+      "model_name": "XAU-DirectRidge",
+      "enabled": true,
+      "confidence_threshold": 0.68,
+      "m15_edge_bps": 3.0,
+      "h1_edge_bps": 3.0,
+      "calibration_trades": 12,
+      "holdout_trades": 9,
+      "holdout_net_bps": 94.25273821209474,
+      "holdout_profit_factor": 3.4037306668406204
+    }
+  ]
+}
