@@ -33,7 +33,12 @@ def _optional_int(name: str) -> int | None:
 
 @dataclass(frozen=True, slots=True)
 class Settings:
-    symbols: tuple[str, ...] = ("BTCUSD", "XAUUSD")
+    symbols: tuple[str, ...] = field(
+        default_factory=lambda: (
+            os.getenv("MT5_BTC_SYMBOL", "BTCUSD"),
+            os.getenv("MT5_XAU_SYMBOL", "XAUUSD"),
+        )
+    )
     bar_count: int = 500
     prediction_length: int = 5
     loop_interval_seconds: float = 60.0
@@ -99,4 +104,3 @@ class Settings:
 
 
 SETTINGS = Settings()
-

@@ -3,7 +3,6 @@ autogen-agentchat>=0.4,<1
 autogen-ext[openai]>=0.4,<1
 chronos-forecasting>=2,<3
 MetaTrader5>=5.0
-numpy>=1.26,<3
+numpy==1.26.4
 pandas>=2.2,<4
 torch>=2.3
-

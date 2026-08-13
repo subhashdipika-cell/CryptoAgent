@@ -47,6 +47,19 @@ $env:DRY_RUN = "true"
 .\.venv\Scripts\python.exe main.py
 ```
 
+This workstation's verified Vantage DEMO terminal uses `BTCUSD` and the broker-suffixed
+`XAUUSD+`. The convenience launcher pins that terminal and forces the safety flags:
+
+```powershell
+.\Start-CryptoAgent-Demo.ps1
+```
+
+For another broker, pass `-TerminalPath`, `-BitcoinSymbol`, and `-GoldSymbol`, or set
+`MT5_BTC_SYMBOL` and `MT5_XAU_SYMBOL` directly.
+
+For a bounded deployment check, set the same environment variables and call
+`TradingApplication().run_once()`. This method refuses to run unless dry-run is enabled.
+
 Run deterministic tests without a terminal connection:
 
 ```powershell
@@ -67,4 +80,3 @@ Logs rotate under `logs/trading.log`. The loop requests 500 completed bars (the 
 - `execution_agent.py`: MT5 state, sizing, initial SL/TP order payload, trailing stops.
 - `main.py`: scheduling, logs, signal consensus, clean shutdown.
 - `autogen_orchestration.py`: isolated Qwen-backed implementation/review agents.
-

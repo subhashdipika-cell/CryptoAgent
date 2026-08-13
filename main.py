@@ -94,6 +94,38 @@ class TradingApplication:
             await asyncio.to_thread(self.execution.submit, plan)
         return symbol, atr
 
+    async def _run_cycle(self, sentiment: SentimentEngine) -> None:
+        await self._refresh_sentiment(sentiment)
+        snapshot = await asyncio.to_thread(self.execution.snapshot)
+        managed = await asyncio.to_thread(self.execution.managed_position_symbols)
+        LOGGER.info(
+            "account equity=%.2f free_margin=%.2f positions=%d",
+            snapshot.equity,
+            snapshot.free_margin,
+            snapshot.positions,
+        )
+        atr_by_symbol: dict[str, float] = {}
+        for symbol in self.settings.symbols:
+            try:
+                name, atr = await self._process_symbol(symbol, managed)
+                atr_by_symbol[name] = atr
+            except Exception:
+                LOGGER.exception("symbol cycle failed for %s", symbol)
+        await asyncio.to_thread(self.execution.trail_positions, atr_by_symbol)
+
+    async def run_once(self) -> None:
+        """Run one complete dry-run cycle for deployment verification."""
+        if self.settings.trading_enabled or not self.settings.dry_run:
+            raise PermissionError("run_once is restricted to dry-run mode")
+        await asyncio.to_thread(self.quant.load)
+        await asyncio.to_thread(self.execution.connect)
+        try:
+            async with SentimentEngine(self.settings) as sentiment:
+                await self._run_cycle(sentiment)
+        finally:
+            await asyncio.to_thread(self.execution.shutdown)
+            LOGGER.info("MT5 DEMO smoke-test session shut down cleanly")
+
     async def run(self) -> None:
         await asyncio.to_thread(self.quant.load)  # fail before MT5 routing if local model is absent/invalid
         await asyncio.to_thread(self.execution.connect)
@@ -107,23 +139,7 @@ class TradingApplication:
                 while not self.stop_event.is_set():
                     started = time.monotonic()
                     try:
-                        await self._refresh_sentiment(sentiment)
-                        snapshot = await asyncio.to_thread(self.execution.snapshot)
-                        managed = await asyncio.to_thread(self.execution.managed_position_symbols)
-                        LOGGER.info(
-                            "account equity=%.2f free_margin=%.2f positions=%d",
-                            snapshot.equity,
-                            snapshot.free_margin,
-                            snapshot.positions,
-                        )
-                        atr_by_symbol: dict[str, float] = {}
-                        for symbol in self.settings.symbols:
-                            try:
-                                name, atr = await self._process_symbol(symbol, managed)
-                                atr_by_symbol[name] = atr
-                            except Exception:
-                                LOGGER.exception("symbol cycle failed for %s", symbol)
-                        await asyncio.to_thread(self.execution.trail_positions, atr_by_symbol)
+                        await self._run_cycle(sentiment)
                     except Exception:
                         LOGGER.exception("execution cycle degraded")
                     delay = max(0.0, self.settings.loop_interval_seconds - (time.monotonic() - started))

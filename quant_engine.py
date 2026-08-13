@@ -130,7 +130,7 @@ class ChronosForecastEngine:
         self._pipeline = Chronos2Pipeline.from_pretrained(
             str(self.settings.model_path),
             device_map="cpu",
-            torch_dtype=torch.float32,
+            dtype=torch.float32,
             local_files_only=True,
         )
         self._check_process_memory()
