@@ -149,16 +149,17 @@ class MT5ExecutionAgent:
         min_distance = float(info.trade_stops_level) * float(info.point)
         if abs(entry - stop) < min_distance or abs(take_profit - entry) < min_distance:
             raise ValueError(f"{symbol} SL/TP violates broker minimum stop distance")
-        risk_amount = float(account.equity) * self.settings.max_risk_fraction
+        risk_budget = float(account.equity) * self.settings.max_risk_fraction
         loss_per_lot = self._loss_per_lot(symbol, side, entry, stop, info)
         volume = self._round_volume(
-            risk_amount / loss_per_lot,
+            risk_budget / loss_per_lot,
             float(info.volume_min),
             float(info.volume_max),
             float(info.volume_step),
         )
         if volume <= 0:
             raise ValueError(f"risk budget is below {symbol}'s minimum lot")
+        risk_amount = volume * loss_per_lot
         margin = self.mt5.order_calc_margin(
             self.mt5.ORDER_TYPE_BUY if side is Side.BUY else self.mt5.ORDER_TYPE_SELL,
             symbol,
