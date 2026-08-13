@@ -99,8 +99,10 @@ class Settings:
             raise ValueError("BAR_COUNT must be >= 50 and prediction length must be 5")
         if self.trading_enabled and self.dry_run:
             raise ValueError("TRADING_ENABLED and DRY_RUN cannot both be true")
-        if self.trading_enabled and not self.mt5_login:
-            raise ValueError("MT5_LOGIN is required when live order routing is enabled")
+        if self.trading_enabled and not self.mt5_login and not self.mt5_terminal_path:
+            raise ValueError(
+                "MT5_LOGIN or MT5_TERMINAL_PATH is required when order routing is enabled"
+            )
 
 
 SETTINGS = Settings()

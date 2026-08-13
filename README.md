@@ -54,14 +54,18 @@ This workstation's verified Vantage DEMO terminal uses `BTCUSD` and the broker-s
 .\Start-CryptoAgent.bat
 ```
 
-Double-click `Start-CryptoAgent.bat` for the same safe startup. Validate its local
-terminal, environment, model, and symbol configuration without starting the loop:
+Double-click `Start-CryptoAgent.bat` to enable order routing to the verified DEMO
+terminal. The launcher forces `REQUIRE_DEMO_ACCOUNT=true`, and the runtime refuses
+to connect if the selected account is not DEMO. It retains the 1% equity risk cap,
+initial SL/TP requirement, and ATR trailing controls. Validate its local terminal,
+environment, model, and symbol configuration without starting the loop:
 
 ```powershell
 .\Start-CryptoAgent.bat --check
 ```
 
-The PowerShell launcher remains available when custom path or symbol parameters are needed:
+The PowerShell launcher remains the dry-run option when custom path or symbol
+parameters are needed:
 
 ```powershell
 .\Start-CryptoAgent-Demo.ps1

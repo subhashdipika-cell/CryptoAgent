@@ -38,6 +38,15 @@ class FakeMT5:
 
 
 class ExecutionTests(unittest.TestCase):
+    def test_routing_can_attach_to_authenticated_demo_terminal(self):
+        settings = Settings(
+            trading_enabled=True,
+            dry_run=False,
+            require_demo_account=True,
+            mt5_terminal_path=r"D:\MT5IntelliTrade\terminal64.exe",
+        )
+        settings.validate()
+
     def test_broker_symbols_can_be_overridden(self):
         import os
         from unittest.mock import patch
