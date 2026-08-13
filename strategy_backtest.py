@@ -131,7 +131,7 @@ def backtest_symbol(
 ) -> tuple[list[BacktestTrade], dict[str, object]]:
     policy_payload = json.loads(settings.decision_policy_path.read_text(encoding="utf-8"))
     policy = next(row for row in policy_payload["policies"] if row["symbol"] == symbol)
-    if not policy["enabled"]:
+    if not policy["enabled"] or not policy.get("approved", False):
         return [], {"symbol": symbol, "status": "DISABLED_BY_HOLDOUT_POLICY"}
 
     m15 = np.asarray(m15_rates)

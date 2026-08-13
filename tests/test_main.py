@@ -30,7 +30,7 @@ class SignalTests(unittest.TestCase):
             {
                 "policies": [{
                     "symbol": "BTCUSD", "model_name": "BTC-DirectRidge",
-                    "enabled": enabled, "confidence_threshold": 0.60,
+                    "enabled": enabled, "approved": enabled, "confidence_threshold": 0.60,
                     "m15_edge_bps": 10.0, "h1_edge_bps": 10.0,
                     "calibration_trades": 10, "holdout_trades": 6,
                     "holdout_net_bps": 12.0, "holdout_profit_factor": 1.2,

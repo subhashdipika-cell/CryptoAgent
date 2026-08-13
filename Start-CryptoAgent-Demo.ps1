@@ -23,5 +23,6 @@ $env:TRADING_ENABLED = "false"
 $env:DRY_RUN = "true"
 $env:PREDICTIVE_MODE = "calibrated"
 $env:MAX_RISK_FRACTION = "0.02"
+$env:AUTOMATIC_REVALIDATION = "false"
 
 & $python (Join-Path $projectRoot "main.py")

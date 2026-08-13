@@ -23,6 +23,12 @@ POLICY_DIR = Path(os.getenv("POLICY_DIR", BASE_DIR / "policies"))
 DECISION_POLICY_PATH = Path(
     os.getenv("DECISION_POLICY_PATH", POLICY_DIR / "asset_decision_policy.json")
 )
+CANDIDATE_POLICY_PATH = Path(
+    os.getenv("CANDIDATE_POLICY_PATH", REPORT_DIR / "candidate_asset_decision_policy.json")
+)
+REVALIDATION_STATE_PATH = Path(
+    os.getenv("REVALIDATION_STATE_PATH", DATA_DIR / "revalidation_state.json")
+)
 
 # Set these before chronos/transformers is imported anywhere else.
 os.environ["HF_HUB_OFFLINE"] = "1"
@@ -94,6 +100,8 @@ class Settings:
     )
     report_dir: Path = REPORT_DIR
     decision_policy_path: Path = DECISION_POLICY_PATH
+    candidate_policy_path: Path = CANDIDATE_POLICY_PATH
+    revalidation_state_path: Path = REVALIDATION_STATE_PATH
     history_sync_days: int = field(
         default_factory=lambda: int(os.getenv("HISTORY_SYNC_DAYS", "3650"))
     )
@@ -118,6 +126,12 @@ class Settings:
     )
     validation_min_folds: int = field(
         default_factory=lambda: int(os.getenv("PREDICTIVE_MIN_FOLDS", "30"))
+    )
+    automatic_revalidation: bool = field(
+        default_factory=lambda: _bool("AUTOMATIC_REVALIDATION", True)
+    )
+    revalidation_new_m15_bars: int = field(
+        default_factory=lambda: int(os.getenv("REVALIDATION_NEW_M15_BARS", "500"))
     )
     dry_run: bool = field(default_factory=lambda: _bool("DRY_RUN", True))
 
@@ -144,6 +158,8 @@ class Settings:
             raise ValueError("PREDICTIVE_MODE must be shadow, calibrated, or dedicated")
         if self.validation_bars < 500 or self.validation_min_folds < 20:
             raise ValueError("predictive validation requires >=500 bars and >=20 folds")
+        if self.revalidation_new_m15_bars < 500:
+            raise ValueError("REVALIDATION_NEW_M15_BARS must be >=500")
 
     def order_comment(self, strategy_name: str) -> str:
         application = self.application_name.strip()

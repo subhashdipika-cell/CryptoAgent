@@ -21,6 +21,8 @@ set "REQUIRE_DEMO_ACCOUNT=true"
 set "TRADING_ENABLED=true"
 set "DRY_RUN=false"
 set "MAX_RISK_FRACTION=0.02"
+set "AUTOMATIC_REVALIDATION=true"
+set "REVALIDATION_NEW_M15_BARS=500"
 
 if not exist "%MT5_TERMINAL_PATH%" (
     echo ERROR: MT5 terminal not found: %MT5_TERMINAL_PATH%
@@ -48,6 +50,8 @@ if /I "%~1"=="--check" (
     echo Mode:     DEMO only - order routing ENABLED
     echo Predictor: Dedicated BTC/XAU models with holdout-calibrated policy
     echo Risk:     Maximum 2%% of equity per trade
+    echo Revalidation: Candidate-only after 500 new completed M15 bars
+    echo Promotion:    Manual approval and restart required
     exit /b 0
 )
 

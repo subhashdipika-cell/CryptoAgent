@@ -15,6 +15,7 @@ class AssetDecisionPolicy:
     symbol: str
     model_name: str
     enabled: bool
+    approved: bool
     confidence_threshold: float
     m15_edge_bps: float
     h1_edge_bps: float
@@ -49,6 +50,7 @@ class CalibratedDecisionEngine:
         payload = json.loads(path.read_text(encoding="utf-8"))
         policies: dict[str, AssetDecisionPolicy] = {}
         for row in payload.get("policies", []):
+            row = {**row, "approved": bool(row.get("approved", False))}
             policy = AssetDecisionPolicy(**row)
             policies[policy.symbol] = policy
         return policies
@@ -64,7 +66,7 @@ class CalibratedDecisionEngine:
     ) -> DecisionResult:
         policy = self._policies.get(symbol)
         model_name = m15.model_name if m15.model_name == h1.model_name else "MIXED_MODELS"
-        if policy is None or not policy.enabled:
+        if policy is None or not policy.enabled or not policy.approved:
             return DecisionResult(None, "UNVALIDATED_MODEL", 0.5, 1.0, model_name)
         if model_name != policy.model_name:
             return DecisionResult(None, "MODEL_POLICY_MISMATCH", 0.5, policy.confidence_threshold, model_name)

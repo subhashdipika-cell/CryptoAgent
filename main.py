@@ -13,6 +13,7 @@ from asset_predictive_engine import DedicatedAssetForecastEngine
 from decision_engine import CalibratedDecisionEngine, DecisionResult
 from execution_agent import MT5ExecutionAgent, Side
 from quant_engine import ChronosForecastEngine, ForecastResult, close_prices, true_range_atr
+from revalidation_scheduler import RevalidationScheduler
 from sentiment_engine import SentimentEngine, SentimentResult
 from trade_journal import TradeJournal
 
@@ -52,6 +53,7 @@ class TradingApplication:
         self.decisions = CalibratedDecisionEngine(settings.decision_policy_path)
         self.execution = MT5ExecutionAgent(settings)
         self.journal = TradeJournal(settings)
+        self.revalidation = RevalidationScheduler(settings)
         self.stop_event = asyncio.Event()
         self._sentiment = SentimentResult(0.5, 0, degraded=True)
         self._sentiment_at = 0.0
@@ -77,7 +79,7 @@ class TradingApplication:
         managed: set[str],
         account: object,
         snapshot: object,
-    ) -> tuple[str, float]:
+    ) -> tuple[str, float, tuple[int, ...]]:
         def load_rates() -> tuple[object, object]:
             # MetaTrader5's Python bridge is treated as single-threaded.
             return (
@@ -201,9 +203,11 @@ class TradingApplication:
                 raise
             else:
                 await asyncio.to_thread(self.journal.record_submission, account, plan, result)
-        return symbol, atr
+        return symbol, atr, tuple(int(row["time"]) for row in m15_rates)
 
-    async def _run_cycle(self, sentiment: SentimentEngine) -> None:
+    async def _run_cycle(
+        self, sentiment: SentimentEngine, allow_revalidation: bool = True
+    ) -> None:
         await self._refresh_sentiment(sentiment)
         snapshot = await asyncio.to_thread(self.execution.snapshot)
         account = self.execution.mt5.account_info()
@@ -218,13 +222,19 @@ class TradingApplication:
             snapshot.positions,
         )
         atr_by_symbol: dict[str, float] = {}
+        completed_m15: dict[str, tuple[int, ...]] = {}
         for symbol in self.settings.symbols:
             try:
-                name, atr = await self._process_symbol(symbol, managed, account, snapshot)
+                name, atr, m15_times = await self._process_symbol(
+                    symbol, managed, account, snapshot
+                )
                 atr_by_symbol[name] = atr
+                completed_m15[name] = m15_times
             except Exception:
                 LOGGER.exception("symbol cycle failed for %s", symbol)
         await asyncio.to_thread(self.execution.trail_positions, atr_by_symbol)
+        if allow_revalidation:
+            self.revalidation.observe(completed_m15)
         synced = await asyncio.to_thread(
             self.journal.sync_mt5_history,
             self.execution.mt5,
@@ -245,8 +255,9 @@ class TradingApplication:
         await asyncio.to_thread(self.journal.sync_mt5_history, self.execution.mt5, account)
         try:
             async with SentimentEngine(self.settings) as sentiment:
-                await self._run_cycle(sentiment)
+                await self._run_cycle(sentiment, allow_revalidation=False)
         finally:
+            await self.revalidation.close()
             await asyncio.to_thread(self.execution.shutdown)
             LOGGER.info("MT5 DEMO smoke-test session shut down cleanly")
 
@@ -280,6 +291,7 @@ class TradingApplication:
                     except asyncio.TimeoutError:
                         pass
         finally:
+            await self.revalidation.close()
             await asyncio.to_thread(self.execution.shutdown)
             LOGGER.info("MT5 session shut down cleanly")
 

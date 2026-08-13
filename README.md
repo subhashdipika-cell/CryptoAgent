@@ -117,6 +117,31 @@ risk constraints is recorded as `ORDER_PLAN_REJECTED`. When sentiment is degrade
 the quantitative timeframes are renormalized instead of assigning permanent
 neutral weight.
 
+### Scheduled revalidation and manual promotion
+
+The production launcher counts unique completed M15 bars persistently under
+`data/revalidation_state.json`. After at least 500 new bars, it starts the
+validation script in an isolated hidden process while trading/position management
+continues. Revalidation writes only
+`reports/candidate_asset_decision_policy.json`; it never changes the active policy.
+
+Inspect active and candidate policies:
+
+```powershell
+.\.venv\Scripts\python.exe policy_admin.py status
+```
+
+After reviewing a passing BTC candidate, promotion requires this explicit command:
+
+```powershell
+.\.venv\Scripts\python.exe policy_admin.py approve BTCUSD
+```
+
+A failed candidate cannot be approved. A successful manual approval is recorded
+in the active policy audit, and CryptoAgent must be restarted before the approved
+policy can influence DEMO orders. Gold's current active approval is preserved by
+candidate revalidation.
+
 Two general-purpose foundation challengers are supported through strictly offline
 adapters:
 

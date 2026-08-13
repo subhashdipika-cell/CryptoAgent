@@ -134,6 +134,7 @@ def calibrate_policy(symbol: str, folds: list[CompositeFold]) -> tuple[dict[str,
         "symbol": symbol,
         "model_name": f"{asset_key(symbol)}-DirectRidge",
         "enabled": enabled,
+        "approved": False,
         "confidence_threshold": confidence,
         "m15_edge_bps": m15_edge,
         "h1_edge_bps": h1_edge,
@@ -220,7 +221,7 @@ def write_reports(
     settings: Settings,
 ) -> None:
     settings.report_dir.mkdir(parents=True, exist_ok=True)
-    settings.decision_policy_path.parent.mkdir(parents=True, exist_ok=True)
+    settings.candidate_policy_path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "methodology": "anchored walk-forward; completed bars only; five-bar horizon; no execution fills",
         "promotion_policy": "PASS is advisory; every candidate remains SHADOW_ONLY until explicitly approved",
@@ -237,7 +238,7 @@ def write_reports(
         for key, rows in folds.items():
             for row in rows:
                 writer.writerow([key, *asdict(row).values()])
-    settings.decision_policy_path.write_text(
+    settings.candidate_policy_path.write_text(
         json.dumps(
             {
                 "methodology": "chronological 65% calibration and 35% untouched holdout",
