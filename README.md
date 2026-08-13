@@ -51,6 +51,19 @@ This workstation's verified Vantage DEMO terminal uses `BTCUSD` and the broker-s
 `XAUUSD+`. The convenience launcher pins that terminal and forces the safety flags:
 
 ```powershell
+.\Start-CryptoAgent.bat
+```
+
+Double-click `Start-CryptoAgent.bat` for the same safe startup. Validate its local
+terminal, environment, model, and symbol configuration without starting the loop:
+
+```powershell
+.\Start-CryptoAgent.bat --check
+```
+
+The PowerShell launcher remains available when custom path or symbol parameters are needed:
+
+```powershell
 .\Start-CryptoAgent-Demo.ps1
 ```
 
