@@ -237,6 +237,7 @@ def generate_report(settings: Settings = SETTINGS) -> dict[str, Path]:
         ("model_forecasts", "model_forecasts.csv"),
         ("account_snapshots", "equity_snapshots.csv"),
         ("submissions", "submissions.csv"),
+        ("order_plan_rejections", "order_plan_rejections.csv"),
     ):
         path = output / filename
         _write_csv(path, [dict(row) for row in journal.rows(table)])
@@ -271,6 +272,14 @@ def generate_report(settings: Settings = SETTINGS) -> dict[str, Path]:
         [symbol, reason, count]
         for (symbol, reason), count in sorted(hold_reasons.items())
     ]
+    rejection_rows = [
+        [
+            row["recorded_at"], row["symbol"], row["side"], row["rejection_error"],
+            row["risk_shortfall"], row["equity_shortfall"], row["minimum_equity"],
+            row["maximum_stop_distance"], row["maximum_atr"],
+        ]
+        for row in reversed(journal.rows("order_plan_rejections")[-100:])
+    ]
     generated_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     report = f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
@@ -292,6 +301,9 @@ th:first-child,td:first-child{{text-align:left}}th{{color:#93c5fd}}.note{{color:
 {_table(['MT5 exit timestamp','Strategy','Symbol','Side','Volume','Entry','Exit','Slippage','Net P/L','Exit reason'], trade_rows)}
 <h2>Decision diagnostics</h2>
 {_table(['Symbol','HOLD reason','Cycles'], hold_rows)}
+<h2>ORDER_PLAN_REJECTED paper diagnostics</h2>
+<p class="note">These diagnostics use a fixed 1% paper reference for 0.01 lot and do not change runtime sizing.</p>
+{_table(['Recorded at','Symbol','Side','Rejection','Risk shortfall','Equity shortfall','Minimum equity','Maximum stop','Maximum ATR'], rejection_rows)}
 <p class="note">Attribution uses Expert IDs {html.escape(str(settings.tracked_magic_numbers))}; broker comments are descriptive and may be overwritten on SL/TP exits.</p>
 </body></html>"""
     report_path = output / "performance_report.html"

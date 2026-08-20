@@ -117,6 +117,20 @@ risk constraints is recorded as `ORDER_PLAN_REJECTED`. When sentiment is degrade
 the quantitative timeframes are renormalized instead of assigning permanent
 neutral weight.
 
+### XAUUSD minimum-equity paper report
+
+Run `Generate-Paper-Risk-Report.bat` to create read-only HTML and JSON evidence for
+XAUUSD 0.01 lot under a fixed 1% reference risk cap. The report reads the current
+DEMO account equity, broker contract metadata, and completed-bar ATR, then shows
+the minimum equity required at the current ATR stop and the maximum ATR/stop
+distance supported by current equity. It forcibly disables order routing and does
+not change the configured runtime sizing cap.
+
+Each `ORDER_PLAN_REJECTED` decision is also written to the
+`order_plan_rejections` journal table with the original error, 1% risk/equity
+shortfalls, minimum equity, and maximum ATR/stop conditions. These rows are
+exported to `reports/order_plan_rejections.csv` and shown in the performance report.
+
 ### Scheduled revalidation and manual promotion
 
 The production launcher counts unique completed M15 bars persistently under
@@ -197,6 +211,7 @@ Outputs under `reports/` include:
 - `submissions.csv`: requested/executed price, planned risk, ATR, SL/TP, and errors.
 - `signals.csv`: M15/H1 forecasts, sentiment, ATR, and BUY/SELL/HOLD decisions.
 - `model_forecasts.csv`: shadow/active per-model predictions, confidence, and edge.
+- `order_plan_rejections.csv`: one row per rejected entry plan with 1% paper shortfalls.
 - `equity_snapshots.csv`: account equity, free margin, leverage, and position count.
 
 Realized metrics come from MT5 deals and include profit, commission, swap, and fees.
@@ -212,6 +227,7 @@ attribution key. Back up the SQLite file if the journal must survive machine los
 - `foundation_backends.py`: offline IBM TTM-R3 and Google TimesFM 2.5 adapters.
 - `predictive_validation.py`: completed-bar walk-forward validation and reports.
 - `strategy_backtest.py`: broker-aware calibrated-policy execution replay.
+- `paper_risk_report.py`: read-only XAUUSD 0.01-lot minimum-equity and ATR report.
 - `sentiment_engine.py`: pooled async RSS/API collection and FinBERT fallback.
 - `execution_agent.py`: MT5 state, sizing, initial SL/TP order payload, trailing stops.
 - `main.py`: scheduling, logs, signal consensus, clean shutdown.

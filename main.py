@@ -154,13 +154,49 @@ class TradingApplication:
                 m15.model_name,
             )
         plan = None
+        rejection_report = None
+        rejection_report_error = None
         if outcome.side:
+            attempted_side = outcome.side
             try:
                 plan = await asyncio.to_thread(
                     self.execution.build_order, symbol, outcome.side, atr
                 )
             except Exception as error:
-                LOGGER.warning("%s entry plan rejected: %s", symbol, error)
+                try:
+                    rejection_report = await asyncio.to_thread(
+                        self.execution.paper_minimum_lot_risk_report,
+                        symbol,
+                        attempted_side,
+                        atr,
+                    )
+                except Exception as report_error:
+                    rejection_report_error = report_error
+                    LOGGER.warning(
+                        "%s entry plan rejected: %s; 1%% paper shortfall unavailable: %s",
+                        symbol, error, report_error,
+                    )
+                else:
+                    LOGGER.warning(
+                        "%s entry plan rejected: %s; 1%% paper risk shortfall=%.2f "
+                        "equity shortfall=%.2f minimum equity=%.2f max stop=%.5f max ATR=%.5f",
+                        symbol,
+                        error,
+                        rejection_report.risk_shortfall,
+                        rejection_report.equity_shortfall,
+                        rejection_report.minimum_equity,
+                        rejection_report.maximum_stop_distance,
+                        rejection_report.maximum_atr,
+                    )
+                await asyncio.to_thread(
+                    self.journal.record_order_plan_rejection,
+                    account,
+                    symbol,
+                    attempted_side,
+                    error,
+                    rejection_report,
+                    rejection_report_error,
+                )
                 outcome = DecisionResult(
                     None, "ORDER_PLAN_REJECTED", outcome.score,
                     outcome.required_score, outcome.model_name,

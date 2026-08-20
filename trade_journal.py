@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, Iterable, Iterator
 
 from config import Settings
-from execution_agent import AccountSnapshot, OrderPlan
+from execution_agent import AccountSnapshot, OrderPlan, PaperMinimumLotRiskReport, Side
 
 
 SCHEMA = """
@@ -95,6 +95,34 @@ CREATE TABLE IF NOT EXISTS submissions (
     retcode INTEGER,
     broker_message TEXT,
     error TEXT
+);
+
+CREATE TABLE IF NOT EXISTS order_plan_rejections (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    recorded_at TEXT NOT NULL,
+    account_login INTEGER NOT NULL,
+    server TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    side TEXT NOT NULL,
+    rejection_error TEXT NOT NULL,
+    report_error TEXT,
+    equity REAL,
+    risk_cap_fraction REAL,
+    paper_volume REAL,
+    atr REAL,
+    stop_atr_multiple REAL,
+    stop_distance REAL,
+    broker_minimum_stop_distance REAL,
+    risk_budget REAL,
+    minimum_lot_risk REAL,
+    risk_shortfall REAL,
+    minimum_equity REAL,
+    equity_shortfall REAL,
+    maximum_stop_distance REAL,
+    stop_distance_excess REAL,
+    maximum_atr REAL,
+    atr_excess REAL,
+    fits_risk_cap INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS mt5_orders (
@@ -323,6 +351,55 @@ class TradeJournal:
                 ),
             )
 
+    def record_order_plan_rejection(
+        self,
+        account: Any,
+        symbol: str,
+        side: Side,
+        error: Exception,
+        report: PaperMinimumLotRiskReport | None,
+        report_error: Exception | None = None,
+    ) -> None:
+        values = (
+            (
+                report.equity,
+                report.risk_cap_fraction,
+                report.volume,
+                report.atr,
+                report.stop_atr_multiple,
+                report.stop_distance,
+                report.broker_minimum_stop_distance,
+                report.risk_budget,
+                report.minimum_lot_risk,
+                report.risk_shortfall,
+                report.minimum_equity,
+                report.equity_shortfall,
+                report.maximum_stop_distance,
+                report.stop_distance_excess,
+                report.maximum_atr,
+                report.atr_excess,
+                int(report.fits_risk_cap),
+            )
+            if report is not None
+            else (None,) * 17
+        )
+        with self._lock, self._connect() as connection:
+            connection.execute(
+                """INSERT INTO order_plan_rejections
+                (recorded_at, account_login, server, symbol, side, rejection_error,
+                 report_error, equity, risk_cap_fraction, paper_volume, atr,
+                 stop_atr_multiple, stop_distance, broker_minimum_stop_distance,
+                 risk_budget, minimum_lot_risk, risk_shortfall, minimum_equity,
+                 equity_shortfall, maximum_stop_distance, stop_distance_excess,
+                 maximum_atr, atr_excess, fits_risk_cap)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    utc_now(), int(account.login), str(account.server), symbol,
+                    side.value, str(error), str(report_error) if report_error else None,
+                    *values,
+                ),
+            )
+
     def _is_tracked(self, record: Any) -> bool:
         magic = int(_value(record, "magic", 0) or 0)
         comment = str(_value(record, "comment", "") or "")
@@ -424,7 +501,7 @@ class TradeJournal:
     def rows(self, table: str) -> list[sqlite3.Row]:
         allowed = {
             "account_snapshots", "signals", "model_forecasts", "submissions",
-            "mt5_orders", "mt5_deals",
+            "order_plan_rejections", "mt5_orders", "mt5_deals",
         }
         if table not in allowed:
             raise ValueError(f"unsupported journal table: {table}")

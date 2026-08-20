@@ -112,6 +112,31 @@ class ExecutionTests(unittest.TestCase):
         actual_risk = plan.volume * abs(plan.entry - plan.stop_loss) * 100.0
         self.assertLessEqual(actual_risk, plan.risk_amount)
 
+    def test_xau_paper_report_calculates_one_percent_shortfalls_and_stop_limits(self):
+        settings = Settings(dry_run=True, trading_enabled=False, max_risk_fraction=0.02)
+        agent = MT5ExecutionAgent(settings, FakeMT5())
+        report = agent.paper_minimum_lot_risk_report("XAUUSD+", Side.BUY, atr=100.0)
+        self.assertEqual(report.risk_cap_fraction, 0.01)
+        self.assertEqual(report.volume, 0.01)
+        self.assertAlmostEqual(report.risk_budget, 100.0)
+        self.assertAlmostEqual(report.minimum_lot_risk, 150.0)
+        self.assertAlmostEqual(report.risk_shortfall, 50.0)
+        self.assertAlmostEqual(report.minimum_equity, 15_000.0)
+        self.assertAlmostEqual(report.equity_shortfall, 5_000.0)
+        self.assertAlmostEqual(report.maximum_stop_distance, 100.0)
+        self.assertAlmostEqual(report.maximum_atr, 100.0 / 1.5)
+        self.assertFalse(report.fits_risk_cap)
+
+    def test_paper_cap_does_not_change_existing_runtime_sizing_limit(self):
+        settings = Settings(dry_run=True, trading_enabled=False, max_risk_fraction=0.02)
+        agent = MT5ExecutionAgent(settings, FakeMT5())
+        report = agent.paper_minimum_lot_risk_report("XAUUSD+", Side.BUY, atr=100.0)
+        plan = agent.build_order("XAUUSD+", Side.BUY, atr=100.0)
+        self.assertFalse(report.fits_risk_cap)
+        self.assertEqual(settings.max_risk_fraction, 0.02)
+        self.assertEqual(plan.volume, 0.01)
+        self.assertLessEqual(plan.risk_amount, 200.0)
+
 
 if __name__ == "__main__":
     unittest.main()

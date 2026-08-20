@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 from config import Settings
 from performance_report import completed_trades, generate_report, metrics
+from execution_agent import PaperMinimumLotRiskReport, Side
 from trade_journal import TradeJournal
 
 
@@ -133,6 +134,28 @@ class TradeJournalTests(unittest.TestCase):
         self.assertTrue(exports["html"].is_file())
         self.assertTrue(exports["completed_trades"].is_file())
         self.assertIn("ChronosFinBERT", exports["html"].read_text(encoding="utf-8"))
+
+    def test_order_plan_rejection_persists_one_percent_shortfall(self):
+        journal = TradeJournal(self.settings)
+        report = PaperMinimumLotRiskReport(
+            "XAUUSD+", Side.BUY, 10_000.0, 0.01, 0.01, 100.0, 1.5,
+            150.0, 0.1, 100.0, 150.0, 50.0, 15_000.0, 5_000.0,
+            100.0, 50.0, 100.0 / 1.5, 100.0 / 3.0, False,
+        )
+        journal.record_order_plan_rejection(
+            self.account,
+            "XAUUSD+",
+            Side.BUY,
+            ValueError("risk budget is below XAUUSD+'s minimum lot"),
+            report,
+        )
+        rows = journal.rows("order_plan_rejections")
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["symbol"], "XAUUSD+")
+        self.assertAlmostEqual(rows[0]["risk_shortfall"], 50.0)
+        self.assertAlmostEqual(rows[0]["equity_shortfall"], 5_000.0)
+        self.assertAlmostEqual(rows[0]["maximum_atr"], 100.0 / 1.5)
+
 
 
 if __name__ == "__main__":
