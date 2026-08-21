@@ -18,7 +18,7 @@ from asset_predictive_engine import ASSET_SPECS, DedicatedAssetForecastEngine, a
 from config import SETTINGS, Settings
 from decision_engine import CalibratedDecisionEngine
 from execution_agent import MT5ExecutionAgent, Side
-from predictive_validation import composite_walk_forward
+from predictive_validation import composite_walk_forward, walk_forward
 from quant_engine import true_range_atr
 
 
@@ -136,8 +136,11 @@ def backtest_symbol(
 
     m15 = np.asarray(m15_rates)
     h1 = np.asarray(h1_rates)
-    agreement_folds = composite_walk_forward(symbol, m15, h1, settings)
-    cutoff = agreement_folds[max(1, int(len(agreement_folds) * 0.65))].origin_time
+    if policy.get("decision_mode", "M15_H1") == "H1_ONLY":
+        validation_folds = walk_forward(symbol, h1, "1h", settings)
+    else:
+        validation_folds = composite_walk_forward(symbol, m15, h1, settings)
+    cutoff = validation_folds[max(1, int(len(validation_folds) * 0.65))].origin_time
     start_index = int(np.searchsorted(m15["time"], cutoff, side="left"))
     spec = ASSET_SPECS[asset_key(symbol)]
     start_index = max(start_index, spec.context + spec.minimum_samples + settings.prediction_length)
@@ -152,6 +155,7 @@ def backtest_symbol(
     pending: Position | None = None
     trades: list[BacktestTrade] = []
     evaluated = entries_blocked_by_risk = 0
+    last_h1_decision_index = -1
 
     for index in range(start_index, len(m15) - 1):
         row = m15[index]
@@ -207,6 +211,10 @@ def backtest_symbol(
             h1_last = int(np.searchsorted(h1["time"], int(row["time"]) - 2700, side="right") - 1)
             if h1_last < spec.context + spec.minimum_samples:
                 continue
+            if policy.get("decision_mode", "M15_H1") == "H1_ONLY":
+                if h1_last == last_h1_decision_index:
+                    continue
+                last_h1_decision_index = h1_last
             m15_training = m15[max(0, index - settings.bar_count + 1) : index + 1]
             h1_training = h1[max(0, h1_last - settings.bar_count + 1) : h1_last + 1]
             atr = true_range_atr(m15_training, settings.atr_period)
@@ -316,6 +324,7 @@ def main() -> None:
     parser.add_argument("--bars", type=int, default=3000)
     parser.add_argument("--commission-per-side", type=float, default=0.03)
     parser.add_argument("--slippage-points", type=float, default=10.0)
+    parser.add_argument("--starting-equity", type=float)
     args = parser.parse_args()
     settings = SETTINGS
     settings.validate()
@@ -324,6 +333,13 @@ def main() -> None:
     account = execution.mt5.account_info()
     if account is None:
         raise RuntimeError("MT5 account unavailable")
+    starting_equity = (
+        float(args.starting_equity)
+        if args.starting_equity is not None
+        else float(account.balance)
+    )
+    if starting_equity <= 0:
+        raise ValueError("starting equity must be positive")
     summaries: list[dict[str, object]] = []
     all_trades: list[BacktestTrade] = []
     try:
@@ -331,7 +347,7 @@ def main() -> None:
             m15 = execution.bars(symbol, execution.mt5.TIMEFRAME_M15, args.bars)
             h1 = execution.bars(symbol, execution.mt5.TIMEFRAME_H1, args.bars)
             trades, summary = backtest_symbol(
-                symbol, m15, h1, execution, settings, float(account.balance),
+                symbol, m15, h1, execution, settings, starting_equity,
                 args.commission_per_side, args.slippage_points,
             )
             all_trades.extend(trades)

@@ -14,6 +14,7 @@ from quant_engine import ForecastResult
 class AssetDecisionPolicy:
     symbol: str
     model_name: str
+    decision_mode: str
     enabled: bool
     approved: bool
     confidence_threshold: float
@@ -50,10 +51,23 @@ class CalibratedDecisionEngine:
         payload = json.loads(path.read_text(encoding="utf-8"))
         policies: dict[str, AssetDecisionPolicy] = {}
         for row in payload.get("policies", []):
-            row = {**row, "approved": bool(row.get("approved", False))}
+            row = {
+                **row,
+                "decision_mode": str(row.get("decision_mode", "M15_H1")),
+                "approved": bool(row.get("approved", False)),
+            }
             policy = AssetDecisionPolicy(**row)
+            if policy.decision_mode not in {"M15_H1", "H1_ONLY"}:
+                raise ValueError(
+                    f"unsupported decision_mode for {policy.symbol}: "
+                    f"{policy.decision_mode}"
+                )
             policies[policy.symbol] = policy
         return policies
+
+    def decision_mode(self, symbol: str) -> str:
+        policy = self._policies.get(symbol)
+        return policy.decision_mode if policy is not None else "M15_H1"
 
     def evaluate(
         self,
@@ -68,6 +82,33 @@ class CalibratedDecisionEngine:
         model_name = m15.model_name if m15.model_name == h1.model_name else "MIXED_MODELS"
         if policy is None or not policy.enabled or not policy.approved:
             return DecisionResult(None, "UNVALIDATED_MODEL", 0.5, 1.0, model_name)
+        if policy.decision_mode == "H1_ONLY":
+            model_name = h1.model_name
+            if model_name != policy.model_name:
+                return DecisionResult(
+                    None, "MODEL_POLICY_MISMATCH", 0.5,
+                    policy.confidence_threshold, model_name,
+                )
+            directional_score = h1.probability
+            if (
+                directional_score < policy.confidence_threshold
+                or abs(h1.edge_bps) < policy.h1_edge_bps
+            ):
+                return DecisionResult(
+                    None, "INSUFFICIENT_EDGE", directional_score,
+                    policy.confidence_threshold, model_name,
+                )
+            if has_position:
+                return DecisionResult(
+                    None, "POSITION_ALREADY_OPEN", directional_score,
+                    policy.confidence_threshold, model_name,
+                )
+            side = Side.BUY if h1.direction == "BULLISH" else Side.SELL
+            return DecisionResult(
+                side, "ENTRY_SIGNAL", directional_score,
+                policy.confidence_threshold, model_name,
+            )
+
         if model_name != policy.model_name:
             return DecisionResult(None, "MODEL_POLICY_MISMATCH", 0.5, policy.confidence_threshold, model_name)
         if m15.direction != h1.direction:

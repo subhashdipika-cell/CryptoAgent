@@ -5,6 +5,7 @@ from pathlib import Path
 
 from config import Settings
 from policy_admin import approve
+from predictive_validation import FoldResult, calibrate_h1_policy
 from revalidation_scheduler import RevalidationScheduler
 
 
@@ -54,6 +55,42 @@ class PolicyGovernanceTests(unittest.TestCase):
         active = json.loads(self.active.read_text())
         btc = next(row for row in active["policies"] if row["symbol"] == "BTCUSD")
         self.assertTrue(btc["approved"])
+
+    def test_h1_candidate_passes_only_on_positive_untouched_holdout(self):
+        folds = [
+            FoldResult(
+                origin_time=index,
+                predicted_edge_bps=20.0,
+                confidence=0.80,
+                actual_return_bps=20.0,
+                direction_correct=True,
+                traded=True,
+                net_return_bps=10.0,
+            )
+            for index in range(60)
+        ]
+        candidate, diagnostics = calibrate_h1_policy("BTCUSD", folds)
+        self.assertTrue(candidate["enabled"])
+        self.assertEqual(candidate["decision_mode"], "H1_ONLY")
+        self.assertFalse(candidate["approved"])
+        self.assertEqual(diagnostics["deployment"], "DEMO_ELIGIBLE")
+
+    def test_h1_candidate_fails_negative_untouched_holdout(self):
+        folds = [
+            FoldResult(
+                origin_time=index,
+                predicted_edge_bps=20.0,
+                confidence=0.80,
+                actual_return_bps=20.0 if index < 39 else -20.0,
+                direction_correct=index < 39,
+                traded=True,
+                net_return_bps=10.0 if index < 39 else -30.0,
+            )
+            for index in range(60)
+        ]
+        candidate, diagnostics = calibrate_h1_policy("BTCUSD", folds)
+        self.assertFalse(candidate["enabled"])
+        self.assertEqual(diagnostics["deployment"], "SHADOW_ONLY")
 
     def test_scheduler_recovers_new_bars_across_restart(self):
         scheduler = RevalidationScheduler(self.settings)

@@ -24,12 +24,13 @@ class SignalTests(unittest.TestCase):
         result = combined_side(forecast("BULLISH", 0.8), forecast("BULLISH", 0.8), 0.7, 0.62)
         self.assertIs(result, Side.BUY)
 
-    def _engine(self, enabled: bool = True) -> CalibratedDecisionEngine:
+    def _engine(self, enabled: bool = True, decision_mode: str = "M15_H1") -> CalibratedDecisionEngine:
         temporary = tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False)
         json.dump(
             {
                 "policies": [{
                     "symbol": "BTCUSD", "model_name": "BTC-DirectRidge",
+                    "decision_mode": decision_mode,
                     "enabled": enabled, "approved": enabled, "confidence_threshold": 0.60,
                     "m15_edge_bps": 10.0, "h1_edge_bps": 10.0,
                     "calibration_trades": 10, "holdout_trades": 6,
@@ -51,6 +52,22 @@ class SignalTests(unittest.TestCase):
         self.assertIs(result.side, Side.BUY)
         self.assertEqual(result.reason, "ENTRY_SIGNAL")
         self.assertAlmostEqual(result.score, 0.63)
+
+    def test_h1_only_policy_ignores_m15_disagreement(self):
+        m15 = ForecastResult(
+            forecast("BEARISH", 0.99).predictions,
+            "BEARISH", 0.99, 0.01, "BTC-DirectRidge", -25.0,
+        )
+        h1 = ForecastResult(
+            forecast("BULLISH", 0.75).predictions,
+            "BULLISH", 0.75, 0.01, "BTC-DirectRidge", 20.0,
+        )
+        result = self._engine(decision_mode="H1_ONLY").evaluate(
+            "BTCUSD", m15, h1, 0.0, False
+        )
+        self.assertIs(result.side, Side.BUY)
+        self.assertEqual(result.reason, "ENTRY_SIGNAL")
+        self.assertAlmostEqual(result.score, 0.75)
 
     def test_disabled_policy_reports_unvalidated_model(self):
         result = self._engine(False).evaluate(

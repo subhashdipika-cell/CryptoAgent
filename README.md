@@ -105,14 +105,19 @@ double-clicking `Generate-Predictive-Validation.bat`, or run:
 
 The report writes `predictive_validation.html`, JSON methodology/results, and
 fold-level CSV evidence under `reports/`. It subtracts explicit asset cost
-assumptions, but does not reproduce tick-level fills. The complete M15+H1 policy
-uses the earlier 65% of chronological folds to select thresholds and the untouched
-later 35% for its deployment gate. Individual-timeframe PASS results remain
-advisory and cannot promote a complete strategy.
+assumptions, but does not reproduce tick-level fills. Gold's complete M15+H1
+policy uses the earlier 65% of chronological folds to select thresholds and the
+untouched later 35% for its deployment gate. BTC uses a dedicated H1-only policy:
+M15 is still journaled for diagnostics but cannot block, authorize, or change the
+H1 direction. Each completed H1 bar is evaluated at most once, preventing repeated
+entries from the same hourly forecast. BTC H1 validation samples up to 360
+chronological folds. The threshold is selected only on the earlier 65%, and DEMO
+eligibility requires at least five later holdout trades, positive net returns
+after assumed costs, at least 52% directional accuracy, and profit factor 1.10.
 
 Every signal records a decision reason: `ENTRY_SIGNAL`, `TIMEFRAME_DISAGREEMENT`,
-`INSUFFICIENT_EDGE`, `UNVALIDATED_MODEL`, `MODEL_POLICY_MISMATCH`, or
-`POSITION_ALREADY_OPEN`. A signal that cannot satisfy broker size, margin, or
+`INSUFFICIENT_EDGE`, `UNVALIDATED_MODEL`, `MODEL_POLICY_MISMATCH`,
+`H1_BAR_ALREADY_EVALUATED`, or `POSITION_ALREADY_OPEN`. A signal that cannot satisfy broker size, margin, or
 risk constraints is recorded as `ORDER_PLAN_REJECTED`. When sentiment is degraded, its weight is omitted and
 the quantitative timeframes are renormalized instead of assigning permanent
 neutral weight.

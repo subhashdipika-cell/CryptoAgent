@@ -133,6 +133,7 @@ def calibrate_policy(symbol: str, folds: list[CompositeFold]) -> tuple[dict[str,
     policy = {
         "symbol": symbol,
         "model_name": f"{asset_key(symbol)}-DirectRidge",
+        "decision_mode": "M15_H1",
         "enabled": enabled,
         "approved": False,
         "confidence_threshold": confidence,
@@ -146,6 +147,83 @@ def calibrate_policy(symbol: str, folds: list[CompositeFold]) -> tuple[dict[str,
     diagnostics = {
         **policy,
         "composite_agreement_folds": len(folds),
+        "holdout_direction_accuracy": accuracy,
+        "deployment": "DEMO_ELIGIBLE" if enabled else "SHADOW_ONLY",
+    }
+    return policy, diagnostics
+
+
+def calibrate_h1_policy(
+    symbol: str, folds: list[FoldResult]
+) -> tuple[dict[str, object], dict[str, object]]:
+    """Select an H1-only threshold early and gate it on untouched later folds."""
+    spec = ASSET_SPECS[asset_key(symbol)]
+    split = max(1, int(len(folds) * 0.65))
+    calibration, holdout = folds[:split], folds[split:]
+    best: tuple[float, float, list[float]] | None = None
+    for confidence in (
+        0.52, 0.55, 0.58, 0.60, 0.62, 0.65, 0.68, 0.70,
+        0.75, 0.80, 0.85, 0.90,
+    ):
+        for h1_edge in (
+            spec.minimum_edge_bps,
+            spec.minimum_edge_bps * 1.5,
+            spec.minimum_edge_bps * 2.0,
+            spec.minimum_edge_bps * 3.0,
+        ):
+            selected = [
+                fold for fold in calibration
+                if fold.confidence >= confidence
+                and abs(fold.predicted_edge_bps) >= h1_edge
+            ]
+            returns = [
+                (1.0 if fold.predicted_edge_bps >= 0 else -1.0)
+                * fold.actual_return_bps
+                - spec.round_trip_cost_bps
+                for fold in selected
+            ]
+            if len(returns) >= 10 and (best is None or sum(returns) > sum(best[2])):
+                best = (confidence, h1_edge, returns)
+    if best is None:
+        best = (0.70, spec.minimum_edge_bps * 2.0, [])
+    confidence, h1_edge, calibration_returns = best
+    selected_holdout = [
+        fold for fold in holdout
+        if fold.confidence >= confidence
+        and abs(fold.predicted_edge_bps) >= h1_edge
+    ]
+    holdout_returns = [
+        (1.0 if fold.predicted_edge_bps >= 0 else -1.0)
+        * fold.actual_return_bps
+        - spec.round_trip_cost_bps
+        for fold in selected_holdout
+    ]
+    correct = sum(fold.direction_correct for fold in selected_holdout)
+    accuracy = correct / len(selected_holdout) if selected_holdout else 0.0
+    profit_factor = _profit_factor(holdout_returns)
+    enabled = (
+        len(selected_holdout) >= 5
+        and accuracy >= 0.52
+        and sum(holdout_returns) > 0
+        and profit_factor >= 1.10
+    )
+    policy = {
+        "symbol": symbol,
+        "model_name": f"{asset_key(symbol)}-DirectRidge",
+        "decision_mode": "H1_ONLY",
+        "enabled": enabled,
+        "approved": False,
+        "confidence_threshold": confidence,
+        "m15_edge_bps": 0.0,
+        "h1_edge_bps": h1_edge,
+        "calibration_trades": len(calibration_returns),
+        "holdout_trades": len(holdout_returns),
+        "holdout_net_bps": sum(holdout_returns),
+        "holdout_profit_factor": profit_factor,
+    }
+    diagnostics = {
+        **policy,
+        "h1_folds": len(folds),
         "holdout_direction_accuracy": accuracy,
         "deployment": "DEMO_ELIGIBLE" if enabled else "SHADOW_ONLY",
     }
@@ -302,12 +380,20 @@ def main() -> None:
     for symbol, by_timeframe in datasets.items():
         for label, (frequency, rates) in by_timeframe.items():
             key = f"{symbol}-{label}"
-            all_folds[key] = walk_forward(symbol, rates, frequency, settings)
+            max_folds = 360 if asset_key(symbol) == "BTC" and label == "H1" else 60
+            all_folds[key] = walk_forward(
+                symbol, rates, frequency, settings, max_folds=max_folds
+            )
             summaries.append(summarize(symbol, label, all_folds[key], settings))
-        composite = composite_walk_forward(
-            symbol, by_timeframe["M15"][1], by_timeframe["H1"][1], settings
-        )
-        policy, diagnostics = calibrate_policy(symbol, composite)
+        if asset_key(symbol) == "BTC":
+            policy, diagnostics = calibrate_h1_policy(
+                symbol, all_folds[f"{symbol}-H1"]
+            )
+        else:
+            composite = composite_walk_forward(
+                symbol, by_timeframe["M15"][1], by_timeframe["H1"][1], settings
+            )
+            policy, diagnostics = calibrate_policy(symbol, composite)
         policies.append(policy)
         policy_diagnostics.append(diagnostics)
     write_reports(summaries, all_folds, policies, policy_diagnostics, settings)

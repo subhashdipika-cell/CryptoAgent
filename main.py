@@ -57,6 +57,7 @@ class TradingApplication:
         self.stop_event = asyncio.Event()
         self._sentiment = SentimentResult(0.5, 0, degraded=True)
         self._sentiment_at = 0.0
+        self._last_h1_decision_bar: dict[str, int] = {}
 
     def request_stop(self) -> None:
         self.stop_event.set()
@@ -142,6 +143,15 @@ class TradingApplication:
                 symbol, m15, h1, self._sentiment.score, self._sentiment.degraded,
                 has_position=symbol in managed,
             )
+            if self.decisions.decision_mode(symbol) == "H1_ONLY":
+                h1_bar_time = int(h1_rates[-1]["time"])
+                if self._last_h1_decision_bar.get(symbol) == h1_bar_time:
+                    outcome = DecisionResult(
+                        None, "H1_BAR_ALREADY_EVALUATED", outcome.score,
+                        outcome.required_score, outcome.model_name,
+                    )
+                else:
+                    self._last_h1_decision_bar[symbol] = h1_bar_time
         else:
             side = combined_side(m15, h1, self._sentiment.score, self.settings.signal_threshold)
             outcome = DecisionResult(
