@@ -52,9 +52,12 @@ class PolicyGovernanceTests(unittest.TestCase):
         self.candidate.write_text(json.dumps({"policies": [policy("BTCUSD", True)]}))
         promoted = approve("BTCUSD", self.settings)
         self.assertTrue(promoted["approved"])
+        self.assertIn("activated_at", promoted)
         active = json.loads(self.active.read_text())
         btc = next(row for row in active["policies"] if row["symbol"] == "BTCUSD")
         self.assertTrue(btc["approved"])
+        self.assertEqual(btc["activated_at"], promoted["activated_at"])
+        self.assertEqual(active["approval_audit"][-1]["approved_at"], promoted["activated_at"])
 
     def test_h1_candidate_passes_only_on_positive_untouched_holdout(self):
         folds = [

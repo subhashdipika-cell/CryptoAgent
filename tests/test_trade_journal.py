@@ -4,7 +4,14 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from config import Settings
-from performance_report import completed_trades, generate_report, metrics
+from performance_report import (
+    FORWARD_EVIDENCE_AVAILABLE,
+    INSUFFICIENT_FORWARD_EVIDENCE,
+    completed_trades,
+    forward_evidence,
+    generate_report,
+    metrics,
+)
 from execution_agent import PaperMinimumLotRiskReport, Side
 from trade_journal import TradeJournal
 
@@ -157,6 +164,108 @@ class TradeJournalTests(unittest.TestCase):
         self.assertAlmostEqual(rows[0]["maximum_atr"], 100.0 / 1.5)
 
 
+
+    def _record_account_mode(self, journal, trade_mode):
+        journal.record_account(
+            SimpleNamespace(
+                login=1234,
+                server="Broker-Demo",
+                trade_mode=trade_mode,
+                balance=1000.0,
+            ),
+            SimpleNamespace(
+                equity=1000.0,
+                margin=0.0,
+                free_margin=1000.0,
+                leverage=100,
+                positions=0,
+            ),
+        )
+
+    def test_forward_evidence_uses_demo_post_activation_trades_and_costs(self):
+        journal = TradeJournal(self.settings)
+        self._record_account_mode(journal, trade_mode=0)
+        journal.sync_mt5_history(FakeHistoryMT5(), self.account)
+        trades = completed_trades(journal.rows("mt5_deals"), self.settings)
+        policy = {
+            "policies": [
+                {"symbol": "BTCUSD", "activated_at": "2023-11-14T22:00:00Z"}
+            ]
+        }
+
+        row = forward_evidence(
+            trades,
+            journal.rows("account_snapshots"),
+            policy,
+            minimum_trades=1,
+            expert_ids={26081301},
+        )[0]
+
+        self.assertEqual(row["evidence_state"], FORWARD_EVIDENCE_AVAILABLE)
+        self.assertEqual(row["sample_size"], 1)
+        self.assertAlmostEqual(row["net_profit_after_costs"], 1.75)
+        self.assertAlmostEqual(row["win_rate_pct"], 100.0)
+        self.assertAlmostEqual(row["profit_factor"], float("inf"))
+        self.assertAlmostEqual(row["max_drawdown"], 0.0)
+
+        wrong_expert = forward_evidence(
+            trades,
+            journal.rows("account_snapshots"),
+            policy,
+            minimum_trades=1,
+            expert_ids={7},
+        )[0]
+
+        self.assertEqual(wrong_expert["sample_size"], 0)
+
+    def test_forward_evidence_is_insufficient_before_activation_or_without_demo_proof(self):
+        journal = TradeJournal(self.settings)
+        self._record_account_mode(journal, trade_mode=1)
+        journal.sync_mt5_history(FakeHistoryMT5(), self.account)
+        trades = completed_trades(journal.rows("mt5_deals"), self.settings)
+        policy = {
+            "policies": [
+                {"symbol": "BTCUSD", "activated_at": "2023-11-14T23:00:00Z"}
+            ]
+        }
+
+        row = forward_evidence(trades, journal.rows("account_snapshots"), policy)[0]
+
+        self.assertEqual(row["evidence_state"], INSUFFICIENT_FORWARD_EVIDENCE)
+        self.assertEqual(row["sample_size"], 0)
+        self.assertEqual(row["minimum_sample_size"], 30)
+
+    def test_forward_evidence_honors_policy_rejection_window(self):
+        journal = TradeJournal(self.settings)
+        self._record_account_mode(journal, trade_mode=0)
+        journal.sync_mt5_history(FakeHistoryMT5(), self.account)
+        trades = completed_trades(journal.rows("mt5_deals"), self.settings)
+        policy = {
+            "policies": [{"symbol": "BTCUSD"}],
+            "approval_audit": [
+                {
+                    "symbol": "BTCUSD",
+                    "action": "MANUAL_APPROVAL",
+                    "approved_at": "2023-11-14T21:00:00Z",
+                },
+                {
+                    "symbol": "BTCUSD",
+                    "action": "BACKTEST_REJECTION",
+                    "rejected_at": "2023-11-14T22:00:00Z",
+                },
+            ],
+        }
+
+        row = forward_evidence(
+            trades,
+            journal.rows("account_snapshots"),
+            policy,
+            minimum_trades=1,
+        )[0]
+
+        self.assertEqual(row["evidence_state"], INSUFFICIENT_FORWARD_EVIDENCE)
+        self.assertEqual(row["sample_size"], 0)
+        self.assertEqual(row["deactivation_at"], "2023-11-14T22:00:00+00:00")
 
 if __name__ == "__main__":
     unittest.main()

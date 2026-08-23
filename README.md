@@ -211,6 +211,8 @@ Generate fresh reports by double-clicking `Generate-Performance-Report.bat`, or 
 Outputs under `reports/` include:
 
 - `performance_report.html`: overall metrics and strategy/asset breakdown.
+- `forward_evidence.csv`: per-asset reconciled DEMO results entered inside the
+  policy-active window, including sample size, net P/L after costs, drawdown, win rate, and profit factor.
 - `completed_trades.csv`: one row per completed position with net P/L and exit reason.
 - `deals.csv` and `orders.csv`: reconciled broker records.
 - `submissions.csv`: requested/executed price, planned risk, ATR, SL/TP, and errors.
@@ -223,6 +225,12 @@ Realized metrics come from MT5 deals and include profit, commission, swap, and f
 Open positions and unfilled orders are deliberately excluded. Broker comments are
 descriptive and can be overwritten on SL/TP exits, so Expert ID is the primary
 attribution key. Back up the SQLite file if the journal must survive machine loss.
+
+Forward evidence uses only the current routed Expert ID, requires the latest
+account/server snapshot to prove MT5 DEMO mode, and requires 30 completed trades
+per asset before leaving `INSUFFICIENT_FORWARD_EVIDENCE`. The threshold indicates
+sample availability, not profitability or promotion eligibility. Reporting is
+read-only and never changes policy, eligibility, sizing, or order routing.
 
 ## Module map
 

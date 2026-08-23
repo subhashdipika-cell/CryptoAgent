@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import csv
 import html
+import json
 import math
 import sqlite3
 from collections import defaultdict
@@ -27,6 +28,11 @@ EXIT_REASONS = {
     5: "TAKE_PROFIT",
     6: "STOP_OUT",
 }
+
+DEMO_TRADE_MODE = 0
+MIN_FORWARD_EVIDENCE_TRADES = 30
+INSUFFICIENT_FORWARD_EVIDENCE = "INSUFFICIENT_FORWARD_EVIDENCE"
+FORWARD_EVIDENCE_AVAILABLE = "FORWARD_EVIDENCE_AVAILABLE"
 
 
 @dataclass(frozen=True, slots=True)
@@ -190,6 +196,117 @@ def metrics(trades: list[CompletedTrade]) -> dict[str, Any]:
     }
 
 
+def _parse_time(value: str) -> datetime:
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _audit_time(row: dict[str, Any]) -> datetime | None:
+    for key, value in row.items():
+        if key.endswith("_at") and isinstance(value, str):
+            return _parse_time(value)
+    return None
+
+
+def policy_activation_windows(
+    policy_payload: dict[str, Any],
+) -> dict[str, tuple[datetime, datetime | None]]:
+    """Return auditable policy-active windows without consulting report results."""
+    windows: dict[str, tuple[datetime, datetime | None]] = {}
+    for policy in policy_payload.get("policies", []):
+        activated_at = policy.get("activated_at")
+        if activated_at:
+            windows[str(policy["symbol"])] = (_parse_time(str(activated_at)), None)
+    audit_rows = []
+    for row in policy_payload.get("approval_audit", []):
+        occurred_at = _audit_time(row)
+        if occurred_at is not None:
+            audit_rows.append((occurred_at, row))
+    for occurred_at, row in sorted(audit_rows, key=lambda item: item[0]):
+        symbol = str(row.get("symbol", ""))
+        action = str(row.get("action", "")).upper()
+        if not symbol:
+            continue
+        if action == "MANUAL_APPROVAL":
+            windows[symbol] = (occurred_at, None)
+        elif "REJECTION" in action and symbol in windows:
+            activated_at, _ = windows[symbol]
+            if occurred_at >= activated_at:
+                windows[symbol] = (activated_at, occurred_at)
+    return windows
+
+
+def demo_accounts(snapshot_rows: Iterable[sqlite3.Row]) -> set[tuple[int, str]]:
+    """Use the latest snapshot for each account/server as its reconciled mode proof."""
+    latest: dict[tuple[int, str], sqlite3.Row] = {}
+    for row in snapshot_rows:
+        key = (int(row["account_login"]), str(row["server"]))
+        previous = latest.get(key)
+        if previous is None or str(row["recorded_at"]) > str(previous["recorded_at"]):
+            latest[key] = row
+    return {
+        key
+        for key, row in latest.items()
+        if row["trade_mode"] is not None and int(row["trade_mode"]) == DEMO_TRADE_MODE
+    }
+
+
+def forward_evidence(
+    trades: list[CompletedTrade],
+    snapshot_rows: Iterable[sqlite3.Row],
+    policy_payload: dict[str, Any],
+    minimum_trades: int = MIN_FORWARD_EVIDENCE_TRADES,
+    expert_ids: set[int] | None = None,
+) -> list[dict[str, Any]]:
+    """Summarize only completed, reconciled DEMO trades entered while policy was active."""
+    windows = policy_activation_windows(policy_payload)
+    demo = demo_accounts(snapshot_rows)
+    symbols = sorted({str(row["symbol"]) for row in policy_payload.get("policies", [])})
+    rows: list[dict[str, Any]] = []
+    for symbol in symbols:
+        window = windows.get(symbol)
+        eligible: list[CompletedTrade] = []
+        if window is not None:
+            activated_at, deactivated_at = window
+            for trade in trades:
+                entry_at = _parse_time(trade.entry_time)
+                if (
+                    trade.symbol == symbol
+                    and (expert_ids is None or trade.expert_id in expert_ids)
+                    and (trade.account_login, trade.server) in demo
+                    and entry_at >= activated_at
+                    and (deactivated_at is None or entry_at < deactivated_at)
+                ):
+                    eligible.append(trade)
+        result = metrics(eligible)
+        rows.append(
+            {
+                "symbol": symbol,
+                "evidence_state": (
+                    FORWARD_EVIDENCE_AVAILABLE
+                    if result["trades"] >= minimum_trades
+                    else INSUFFICIENT_FORWARD_EVIDENCE
+                ),
+                "minimum_sample_size": minimum_trades,
+                "sample_size": result["trades"],
+                "activation_at": window[0].isoformat(timespec="seconds") if window else None,
+                "deactivation_at": (
+                    window[1].isoformat(timespec="seconds")
+                    if window and window[1] is not None
+                    else None
+                ),
+                "net_profit_after_costs": result["net_profit"],
+                "costs": result["costs"],
+                "max_drawdown": abs(result["max_closed_trade_drawdown"]),
+                "win_rate_pct": result["win_rate_pct"],
+                "profit_factor": result["profit_factor"],
+            }
+        )
+    return rows
+
+
 def _write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     if not rows:
@@ -249,6 +366,21 @@ def generate_report(settings: Settings = SETTINGS) -> dict[str, Path]:
     overall = metrics(trades)
     accounts = sorted({f"{trade.server} / {trade.account_login}" for trade in trades})
     snapshots = journal.rows("account_snapshots")
+    policy_path = Path(settings.decision_policy_path)
+    policy_payload = (
+        json.loads(policy_path.read_text(encoding="utf-8"))
+        if policy_path.is_file()
+        else {"policies": []}
+    )
+    evidence_rows = forward_evidence(
+        trades,
+        snapshots,
+        policy_payload,
+        expert_ids={settings.magic_number},
+    )
+    evidence_path = output / "forward_evidence.csv"
+    _write_csv(evidence_path, evidence_rows)
+    exports["forward_evidence"] = evidence_path
     signal_rows = journal.rows("signals")
     latest_equity = float(snapshots[-1]["equity"]) if snapshots else None
     groups: dict[tuple[str, str], list[CompletedTrade]] = defaultdict(list)
@@ -295,6 +427,9 @@ th:first-child,td:first-child{{text-align:left}}th{{color:#93c5fd}}.note{{color:
 <p class="note">Generated {html.escape(generated_at)} from reconciled MT5 deals for {html.escape(', '.join(accounts) if accounts else 'no reconciled account yet')}. Trade timestamps reflect MT5 history time. Open positions and unfilled orders are excluded from realized metrics.</p>
 {f'<p class="note">Latest recorded equity: {latest_equity:.2f}</p>' if latest_equity is not None else ''}
 <div class="grid">{''.join(f'<div class="card"><div>{html.escape(key.replace("_", " ").title())}</div><div class="value">{html.escape(_format(value))}</div></div>' for key, value in overall.items())}</div>
+<h2>Forward evidence after policy activation</h2>
+<p class="note">Read-only evidence from fully reconciled deals whose entry occurred while the asset policy was active and whose account/server latest snapshot is MT5 DEMO. A minimum of {MIN_FORWARD_EVIDENCE_TRADES} completed trades per asset is required to leave {INSUFFICIENT_FORWARD_EVIDENCE}. These results do not alter policy, eligibility, sizing, or routing.</p>
+{_table(['Symbol','Evidence state','Minimum sample','Sample size','Activated at (UTC)','Deactivated at (UTC)','Net P/L after costs','Costs','Max drawdown','Win rate %','Profit factor'], [[row['symbol'], row['evidence_state'], row['minimum_sample_size'], row['sample_size'], row['activation_at'], row['deactivation_at'], row['net_profit_after_costs'], row['costs'], row['max_drawdown'], row['win_rate_pct'], row['profit_factor']] for row in evidence_rows])}
 <h2>Strategy and asset breakdown</h2>
 {_table(['Strategy','Symbol','Trades','Win rate %','Net P/L','Profit factor','Max drawdown'], group_rows)}
 <h2>Latest completed trades</h2>
@@ -320,6 +455,7 @@ def sync_from_terminal(settings: Settings = SETTINGS) -> dict[str, int]:
         account = agent.mt5.account_info()
         if account is None:
             raise RuntimeError("MT5 account unavailable")
+        journal.record_account(account, agent.snapshot())
         return journal.sync_mt5_history(agent.mt5, account)
     finally:
         agent.shutdown()

@@ -33,7 +33,8 @@ def approve(symbol: str, settings: Settings = SETTINGS) -> dict:
         raise ValueError(f"no candidate policy exists for {symbol}")
     if not candidate.get("enabled", False):
         raise PermissionError(f"{symbol} candidate failed validation and cannot be approved")
-    promoted = {**candidate, "approved": True}
+    approved_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    promoted = {**candidate, "approved": True, "activated_at": approved_at}
     policies = [row for row in active_payload.get("policies", []) if row["symbol"] != symbol]
     policies.append(promoted)
     active_payload["policies"] = sorted(policies, key=lambda row: row["symbol"])
@@ -41,7 +42,7 @@ def approve(symbol: str, settings: Settings = SETTINGS) -> dict:
         {
             "symbol": symbol,
             "action": "MANUAL_APPROVAL",
-            "approved_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "approved_at": approved_at,
             "candidate_policy": promoted,
         }
     )

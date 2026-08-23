@@ -21,6 +21,7 @@
       "enabled": true,
       "approved": true,
       "confidence_threshold": 0.68,
+      "activated_at": "2026-08-13T13:18:27+00:00",
       "m15_edge_bps": 3.0,
       "h1_edge_bps": 3.0,
       "calibration_trades": 12,
