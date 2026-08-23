@@ -56,6 +56,7 @@ class CalibratedDecisionEngine:
                 "decision_mode": str(row.get("decision_mode", "M15_H1")),
                 "approved": bool(row.get("approved", False)),
             }
+            row.pop("activated_at", None)  # Reporting metadata; never affects routing.
             policy = AssetDecisionPolicy(**row)
             if policy.decision_mode not in {"M15_H1", "H1_ONLY"}:
                 raise ValueError(

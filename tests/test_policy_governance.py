@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 
 from config import Settings
+from decision_engine import CalibratedDecisionEngine
 from policy_admin import approve
 from predictive_validation import FoldResult, calibrate_h1_policy
 from revalidation_scheduler import RevalidationScheduler
@@ -58,6 +59,8 @@ class PolicyGovernanceTests(unittest.TestCase):
         self.assertTrue(btc["approved"])
         self.assertEqual(btc["activated_at"], promoted["activated_at"])
         self.assertEqual(active["approval_audit"][-1]["approved_at"], promoted["activated_at"])
+        engine = CalibratedDecisionEngine(self.active)
+        self.assertEqual(engine.decision_mode("BTCUSD"), "M15_H1")
 
     def test_h1_candidate_passes_only_on_positive_untouched_holdout(self):
         folds = [
