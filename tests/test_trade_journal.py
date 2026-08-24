@@ -12,6 +12,7 @@ from performance_report import (
     generate_report,
     metrics,
 )
+from liquidity_breakout import LiquidityBreakoutDecision
 from execution_agent import PaperMinimumLotRiskReport, Side
 from trade_journal import TradeJournal
 
@@ -266,6 +267,43 @@ class TradeJournalTests(unittest.TestCase):
         self.assertEqual(row["evidence_state"], INSUFFICIENT_FORWARD_EVIDENCE)
         self.assertEqual(row["sample_size"], 0)
         self.assertEqual(row["deactivation_at"], "2023-11-14T22:00:00+00:00")
+    def test_liquidity_evaluation_is_durable_and_exported(self):
+        journal = TradeJournal(self.settings)
+        decision = LiquidityBreakoutDecision(
+            asset="XAUUSD+",
+            macro_bias_4h="BULLISH_SWEEP",
+            retail_bait_level=105.0,
+            whale_target_level_4h=120.0,
+            entry_price_3m=106.0,
+            stop_loss_15m=102.0,
+            take_profit_4h=120.0,
+            calculated_rrr=3.5,
+            side=Side.BUY,
+            trade_status="ENTRY_SIGNAL",
+            notes="Confirmed test setup.",
+            trigger_bar_time=123,
+        )
+        journal.record_liquidity_signal(
+            self.account,
+            "LiquidityBreakout",
+            decision,
+            risk_amount_usd=100.0,
+            projected_profit_usd=350.0,
+            trade_status="DRY_RUN",
+        )
+
+        row = journal.rows("liquidity_signals")[0]
+        self.assertEqual(row["asset"], "XAUUSD+")
+        self.assertEqual(row["trade_status"], "DRY_RUN")
+        self.assertAlmostEqual(row["calculated_rrr"], 3.5)
+        self.assertAlmostEqual(row["projected_profit_usd"], 350.0)
+        exports = generate_report(self.settings)
+        self.assertTrue(exports["liquidity_signals"].is_file())
+        self.assertIn(
+            "LiquidityBreakout",
+            exports["liquidity_signals"].read_text(encoding="utf-8-sig"),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

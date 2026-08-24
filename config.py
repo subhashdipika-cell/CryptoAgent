@@ -92,6 +92,9 @@ class Settings:
     strategy_name: str = field(
         default_factory=lambda: os.getenv("TRADING_STRATEGY", "ChronosFinBERT")
     )
+    strategy_mode: str = field(
+        default_factory=lambda: os.getenv("STRATEGY_MODE", "calibrated").strip().lower()
+    )
     legacy_magic_numbers: tuple[int, ...] = (84010310,)
     journal_path: Path = field(
         default_factory=lambda: Path(
@@ -115,6 +118,30 @@ class Settings:
     stop_atr_multiple: float = 1.5
     take_profit_atr_multiple: float = 3.0
     trailing_trigger_atr: float = 1.5
+    liquidity_min_rrr: float = field(
+        default_factory=lambda: float(os.getenv("LIQUIDITY_MIN_RRR", "2.5"))
+    )
+    liquidity_min_touches: int = field(
+        default_factory=lambda: int(os.getenv("LIQUIDITY_MIN_TOUCHES", "3"))
+    )
+    liquidity_volume_expansion: float = field(
+        default_factory=lambda: float(os.getenv("LIQUIDITY_VOLUME_EXPANSION", "1.2"))
+    )
+    liquidity_momentum_body_fraction: float = field(
+        default_factory=lambda: float(os.getenv("LIQUIDITY_MOMENTUM_BODY_FRACTION", "0.60"))
+    )
+    liquidity_max_trades_per_day: int = field(
+        default_factory=lambda: int(os.getenv("LIQUIDITY_MAX_TRADES_PER_DAY", "3"))
+    )
+    liquidity_daily_active_capital: float = field(
+        default_factory=lambda: float(os.getenv("LIQUIDITY_DAILY_ACTIVE_CAPITAL", "1000"))
+    )
+    liquidity_daily_target_fraction: float = field(
+        default_factory=lambda: float(os.getenv("LIQUIDITY_DAILY_TARGET_FRACTION", "0.25"))
+    )
+    liquidity_daily_timezone: str = field(
+        default_factory=lambda: os.getenv("LIQUIDITY_DAILY_TIMEZONE", "Asia/Kolkata")
+    )
     trailing_distance_atr: float = 1.0
     max_deviation_points: int = 20
     signal_threshold: float = 0.62
@@ -160,6 +187,22 @@ class Settings:
             raise ValueError("predictive validation requires >=500 bars and >=20 folds")
         if self.revalidation_new_m15_bars < 500:
             raise ValueError("REVALIDATION_NEW_M15_BARS must be >=500")
+        if self.strategy_mode not in {"calibrated", "liquidity_breakout"}:
+            raise ValueError("STRATEGY_MODE must be calibrated or liquidity_breakout")
+        if self.liquidity_min_rrr < 2.5:
+            raise ValueError("LIQUIDITY_MIN_RRR must be >= 2.5")
+        if self.liquidity_min_touches < 3:
+            raise ValueError("LIQUIDITY_MIN_TOUCHES must be >= 3")
+        if self.liquidity_volume_expansion < 1:
+            raise ValueError("LIQUIDITY_VOLUME_EXPANSION must be >= 1")
+        if not 0 < self.liquidity_momentum_body_fraction <= 1:
+            raise ValueError("LIQUIDITY_MOMENTUM_BODY_FRACTION must be in (0, 1]")
+        if not 1 <= self.liquidity_max_trades_per_day <= 3:
+            raise ValueError("LIQUIDITY_MAX_TRADES_PER_DAY must be in [1, 3]")
+        if self.liquidity_daily_active_capital <= 0:
+            raise ValueError("LIQUIDITY_DAILY_ACTIVE_CAPITAL must be positive")
+        if not 0 < self.liquidity_daily_target_fraction <= 0.25:
+            raise ValueError("LIQUIDITY_DAILY_TARGET_FRACTION must be in (0, 0.25]")
 
     def order_comment(self, strategy_name: str) -> str:
         application = self.application_name.strip()

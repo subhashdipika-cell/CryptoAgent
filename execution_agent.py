@@ -5,8 +5,10 @@ from __future__ import annotations
 import logging
 import math
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from enum import Enum, auto
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from config import Settings
 
@@ -33,6 +35,18 @@ class AccountSnapshot:
     margin: float
     leverage: int
     positions: int
+
+
+@dataclass(frozen=True, slots=True)
+class DailyPerformance:
+    day: str
+    entries: int
+    net_profit: float
+    target_profit: float
+
+    @property
+    def target_reached(self) -> bool:
+        return self.net_profit >= self.target_profit
 
 
 @dataclass(frozen=True, slots=True)
@@ -126,6 +140,59 @@ class MT5ExecutionAgent:
             positions=len(positions),
         )
 
+    def daily_performance(self, now: datetime | None = None) -> DailyPerformance:
+        """Return current-strategy realized P/L and entries for the configured local day."""
+        zone = ZoneInfo(self.settings.liquidity_daily_timezone)
+        local_now = now.astimezone(zone) if now is not None else datetime.now(zone)
+        local_start = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
+        local_end = local_start + timedelta(days=1)
+        start_utc, end_utc = local_start.astimezone(timezone.utc), local_end.astimezone(timezone.utc)
+        history_start = start_utc - timedelta(days=min(self.settings.history_sync_days, 30))
+        deals = self.mt5.history_deals_get(history_start, end_utc)
+        if deals is None:
+            raise RuntimeError(f"daily MT5 history unavailable: {self.mt5.last_error()}")
+        start_ms = int(start_utc.timestamp() * 1000)
+        end_ms = int(end_utc.timestamp() * 1000)
+        expected_comment = self.settings.order_comment(self.settings.strategy_name)
+        strategy_positions = {
+            int(getattr(deal, "position_id", 0) or 0)
+            for deal in deals
+            if int(getattr(deal, "magic", 0) or 0) == self.settings.magic_number
+            and int(getattr(deal, "entry", -1)) == 0
+            and str(getattr(deal, "comment", "")) == expected_comment
+            and int(getattr(deal, "position_id", 0) or 0) > 0
+        }
+        tracked = [
+            deal
+            for deal in deals
+            if int(getattr(deal, "position_id", 0) or 0) in strategy_positions
+            and start_ms <= int(getattr(deal, "time_msc", 0) or 0) < end_ms
+        ]
+        entries = len({
+            int(getattr(deal, "position_id", 0) or 0)
+            for deal in tracked
+            if int(getattr(deal, "entry", -1)) == 0
+        })
+        net_profit = sum(
+            float(getattr(deal, name, 0.0) or 0.0)
+            for deal in tracked
+            for name in ("profit", "commission", "swap", "fee")
+        )
+        account = self.mt5.account_info()
+        if account is None:
+            raise RuntimeError(f"account unavailable for daily target: {self.mt5.last_error()}")
+        active_capital = min(
+            self.settings.liquidity_daily_active_capital,
+            max(0.0, float(account.equity)),
+        )
+        return DailyPerformance(
+            local_start.date().isoformat(),
+            entries,
+            net_profit,
+            active_capital * self.settings.liquidity_daily_target_fraction,
+        )
+
+
     def managed_position_symbols(self) -> set[str]:
         positions = self.mt5.positions_get()
         if positions is None:
@@ -217,6 +284,120 @@ class MT5ExecutionAgent:
             atr_excess=max(0.0, float(atr) - maximum_atr),
             fits_risk_cap=minimum_lot_risk <= risk_budget + 1e-9,
         )
+
+    def build_structured_order(
+        self,
+        symbol: str,
+        side: Side,
+        stop_loss: float,
+        take_profit: float,
+        atr: float,
+        *,
+        minimum_rrr: float = 2.5,
+    ) -> OrderPlan:
+        """Size an order from strategy-defined structure while retaining hard risk caps."""
+        account, info, tick = (
+            self.mt5.account_info(),
+            self.mt5.symbol_info(symbol),
+            self.mt5.symbol_info_tick(symbol),
+        )
+        if account is None or info is None or tick is None:
+            raise RuntimeError(f"missing MT5 order metadata for {symbol}: {self.mt5.last_error()}")
+        if atr <= 0 or account.equity <= 0:
+            raise ValueError("ATR and equity must be positive")
+        entry = float(tick.ask if side is Side.BUY else tick.bid)
+        digits = int(info.digits)
+        stop = round(float(stop_loss), digits)
+        target = round(float(take_profit), digits)
+        risk = entry - stop if side is Side.BUY else stop - entry
+        reward = target - entry if side is Side.BUY else entry - target
+        if risk <= 0 or reward <= 0:
+            raise ValueError(f"{symbol} structure SL/TP is on the wrong side of market entry")
+        rrr = reward / risk
+        if rrr < minimum_rrr:
+            raise ValueError(
+                f"{symbol} broker-price reward/risk {rrr:.2f} is below {minimum_rrr:.2f}"
+            )
+        min_distance = float(info.trade_stops_level) * float(info.point)
+        if risk < min_distance or reward < min_distance:
+            raise ValueError(f"{symbol} SL/TP violates broker minimum stop distance")
+        risk_budget = float(account.equity) * self.settings.max_risk_fraction
+        loss_per_lot = self._loss_per_lot(symbol, side, entry, stop, info)
+        volume = self._round_volume(
+            risk_budget / loss_per_lot,
+            float(info.volume_min),
+            float(info.volume_max),
+            float(info.volume_step),
+        )
+        if volume <= 0:
+            raise ValueError(f"risk budget is below {symbol}'s minimum lot")
+        risk_amount = volume * loss_per_lot
+        margin = self.mt5.order_calc_margin(
+            self.mt5.ORDER_TYPE_BUY if side is Side.BUY else self.mt5.ORDER_TYPE_SELL,
+            symbol,
+            volume,
+            entry,
+        )
+        if margin is None or margin > account.margin_free * self.settings.max_margin_fraction:
+            raise ValueError(f"{symbol} order exceeds available-margin policy")
+        return OrderPlan(
+            symbol,
+            side,
+            volume,
+            entry,
+            stop,
+            target,
+            atr,
+            risk_amount,
+            self.settings.strategy_name,
+        )
+
+    def move_positions_to_breakeven(self, minimum_rrr: float = 2.0) -> None:
+        """Move this strategy's fixed SL to entry after price reaches the configured R multiple."""
+        positions = self.mt5.positions_get()
+        if positions is None:
+            raise RuntimeError(f"positions_get failed: {self.mt5.last_error()}")
+        expected_comment = self.settings.order_comment(self.settings.strategy_name)
+        for position in positions:
+            if (
+                position.magic != self.settings.magic_number
+                or str(getattr(position, "comment", "")) != expected_comment
+            ):
+                continue
+            is_buy = position.type == self.mt5.POSITION_TYPE_BUY
+            entry, current_sl = float(position.price_open), float(position.sl)
+            initial_risk = entry - current_sl if is_buy else current_sl - entry
+            if initial_risk <= 0:
+                continue
+            tick, info = self.mt5.symbol_info_tick(position.symbol), self.mt5.symbol_info(position.symbol)
+            if tick is None or info is None:
+                continue
+            current = float(tick.bid if is_buy else tick.ask)
+            profit_distance = current - entry if is_buy else entry - current
+            if profit_distance < minimum_rrr * initial_risk:
+                continue
+            candidate = round(entry, int(info.digits))
+            improves = candidate > current_sl if is_buy else candidate < current_sl
+            if not improves:
+                continue
+            request = {
+                "action": self.mt5.TRADE_ACTION_SLTP,
+                "symbol": position.symbol,
+                "position": position.ticket,
+                "sl": candidate,
+                "tp": position.tp,
+                "magic": self.settings.magic_number,
+            }
+            if self.settings.trading_enabled and not self.settings.dry_run:
+                result = self.mt5.order_send(request)
+                if result is None or result.retcode != self.mt5.TRADE_RETCODE_DONE:
+                    LOGGER.error(
+                        "Breakeven stop failed for %s: %s",
+                        position.ticket,
+                        result or self.mt5.last_error(),
+                    )
+            else:
+                LOGGER.info("DRY RUN breakeven update: %s", request)
 
     def build_order(self, symbol: str, side: Side, atr: float) -> OrderPlan:
         account, info, tick = self.mt5.account_info(), self.mt5.symbol_info(symbol), self.mt5.symbol_info_tick(symbol)

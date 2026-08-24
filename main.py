@@ -3,14 +3,21 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import signal
 import time
+from dataclasses import replace
 from logging.handlers import RotatingFileHandler
 
 from config import LOG_DIR, SETTINGS, Settings
 from asset_predictive_engine import DedicatedAssetForecastEngine
 from decision_engine import CalibratedDecisionEngine, DecisionResult
+from liquidity_breakout import (
+    LiquidityBreakoutEngine,
+    daily_lock_reason,
+    effective_daily_entries,
+)
 from execution_agent import MT5ExecutionAgent, Side
 from quant_engine import ChronosForecastEngine, ForecastResult, close_prices, true_range_atr
 from revalidation_scheduler import RevalidationScheduler
@@ -55,12 +62,173 @@ class TradingApplication:
         self.journal = TradeJournal(settings)
         self.revalidation = RevalidationScheduler(settings)
         self.stop_event = asyncio.Event()
+        self.liquidity = LiquidityBreakoutEngine(
+            minimum_rrr=settings.liquidity_min_rrr,
+            minimum_touches=settings.liquidity_min_touches,
+            volume_expansion=settings.liquidity_volume_expansion,
+            momentum_body_fraction=settings.liquidity_momentum_body_fraction,
+        )
+        self._last_liquidity_trigger_bar: dict[str, int] = {}
+        self._liquidity_reservation_day = ""
+        self._liquidity_reserved_entries = 0
         self._sentiment = SentimentResult(0.5, 0, degraded=True)
         self._sentiment_at = 0.0
         self._last_h1_decision_bar: dict[str, int] = {}
 
     def request_stop(self) -> None:
         self.stop_event.set()
+
+    async def _process_liquidity_symbol(
+        self,
+        symbol: str,
+        managed: set[str],
+        account: object,
+        _snapshot: object,
+    ) -> tuple[str, float, tuple[int, ...]]:
+        def load_rates() -> tuple[object, object, object]:
+            return (
+                self.execution.bars(symbol, self.execution.mt5.TIMEFRAME_H4, 120),
+                self.execution.bars(symbol, self.execution.mt5.TIMEFRAME_M15, 120),
+                self.execution.bars(symbol, self.execution.mt5.TIMEFRAME_M3, 60),
+            )
+
+        h4_rates, m15_rates, m3_rates = await asyncio.to_thread(load_rates)
+        atr = true_range_atr(m15_rates, self.settings.atr_period)
+        decision = self.liquidity.evaluate(
+            symbol,
+            h4_rates,
+            m15_rates,
+            m3_rates,
+            has_position=symbol in managed,
+        )
+        plan = None
+        risk_amount = projected_profit = 0.0
+        if decision.side is not None:
+            daily = await asyncio.to_thread(self.execution.daily_performance)
+            if self._liquidity_reservation_day != daily.day:
+                self._liquidity_reservation_day = daily.day
+                self._liquidity_reserved_entries = daily.entries
+            effective_entries = effective_daily_entries(daily.entries, self._liquidity_reserved_entries)
+            lock_reason = daily_lock_reason(
+                effective_entries,
+                daily.net_profit,
+                daily.target_profit,
+                self.settings.liquidity_max_trades_per_day,
+            )
+            if lock_reason == "DAILY_TARGET_REACHED":
+                decision = replace(
+                    decision,
+                    side=None,
+                    trade_status="DAILY_TARGET_REACHED",
+                    notes=(
+                        f"Realized daily net P/L {daily.net_profit:.2f} reached "
+                        f"the {daily.target_profit:.2f} target; anti-greed lock active."
+                    ),
+                )
+            elif lock_reason == "MAX_DAILY_TRADES_REACHED":
+                decision = replace(
+                    decision,
+                    side=None,
+                    trade_status="MAX_DAILY_TRADES_REACHED",
+                    notes=(
+                        f"{effective_entries} entries already counted for {daily.day}; "
+                        "daily execution lock active."
+                    ),
+                )
+            elif self._last_liquidity_trigger_bar.get(symbol) == decision.trigger_bar_time:
+                decision = replace(
+                    decision,
+                    side=None,
+                    trade_status="M3_BAR_ALREADY_EVALUATED",
+                    notes="This completed M3 trigger bar was already evaluated.",
+                )
+            else:
+                self._last_liquidity_trigger_bar[symbol] = int(decision.trigger_bar_time or 0)
+                try:
+                    plan = await asyncio.to_thread(
+                        self.execution.build_structured_order,
+                        symbol,
+                        decision.side,
+                        float(decision.stop_loss_15m),
+                        float(decision.take_profit_4h),
+                        atr,
+                        minimum_rrr=self.settings.liquidity_min_rrr,
+                    )
+                except Exception as error:
+                    try:
+                        report = await asyncio.to_thread(
+                            self.execution.paper_minimum_lot_risk_report,
+                            symbol,
+                            decision.side,
+                            atr,
+                        )
+                        report_error = None
+                    except Exception as diagnostic_error:
+                        report, report_error = None, diagnostic_error
+                    await asyncio.to_thread(
+                        self.journal.record_order_plan_rejection,
+                        account,
+                        symbol,
+                        decision.side,
+                        error,
+                        report,
+                        report_error,
+                    )
+                    decision = replace(
+                        decision,
+                        side=None,
+                        trade_status="ORDER_PLAN_REJECTED",
+                        notes=str(error),
+                    )
+
+        final_status = decision.trade_status
+        if plan is not None:
+            risk_amount = plan.risk_amount
+            actual_rrr = abs(plan.take_profit - plan.entry) / abs(plan.entry - plan.stop_loss)
+            projected_profit = risk_amount * actual_rrr
+            try:
+                result = await asyncio.to_thread(self.execution.submit, plan)
+            except Exception as error:
+                await asyncio.to_thread(
+                    self.journal.record_submission, account, plan, None, error
+                )
+                await asyncio.to_thread(
+                    self.journal.record_liquidity_signal,
+                    account,
+                    self.settings.strategy_name,
+                    decision,
+                    risk_amount_usd=risk_amount,
+                    projected_profit_usd=projected_profit,
+                    trade_status="SUBMISSION_ERROR",
+                )
+                raise
+            await asyncio.to_thread(
+                self.journal.record_submission, account, plan, result
+            )
+            self._liquidity_reserved_entries += 1
+            final_status = "EXECUTED" if result is not None else "DRY_RUN"
+
+        await asyncio.to_thread(
+            self.journal.record_liquidity_signal,
+            account,
+            self.settings.strategy_name,
+            decision,
+            risk_amount_usd=risk_amount,
+            projected_profit_usd=projected_profit,
+            trade_status=final_status,
+        )
+        LOGGER.info(
+            "LIQUIDITY_EVALUATION %s",
+            json.dumps(
+                decision.payload(
+                    risk_amount_usd=risk_amount,
+                    projected_profit_usd=projected_profit,
+                    trade_status=final_status,
+                ),
+                sort_keys=True,
+            ),
+        )
+        return symbol, atr, tuple(int(row["time"]) for row in m15_rates)
 
     async def _refresh_sentiment(self, engine: SentimentEngine) -> None:
         if time.monotonic() - self._sentiment_at < self.settings.sentiment_refresh_seconds:
@@ -254,7 +422,8 @@ class TradingApplication:
     async def _run_cycle(
         self, sentiment: SentimentEngine, allow_revalidation: bool = True
     ) -> None:
-        await self._refresh_sentiment(sentiment)
+        if self.settings.strategy_mode == "calibrated":
+            await self._refresh_sentiment(sentiment)
         snapshot = await asyncio.to_thread(self.execution.snapshot)
         account = self.execution.mt5.account_info()
         if account is None:
@@ -269,17 +438,25 @@ class TradingApplication:
         )
         atr_by_symbol: dict[str, float] = {}
         completed_m15: dict[str, tuple[int, ...]] = {}
+        processor = (
+            self._process_liquidity_symbol
+            if self.settings.strategy_mode == "liquidity_breakout"
+            else self._process_symbol
+        )
         for symbol in self.settings.symbols:
             try:
-                name, atr, m15_times = await self._process_symbol(
+                name, atr, m15_times = await processor(
                     symbol, managed, account, snapshot
                 )
                 atr_by_symbol[name] = atr
                 completed_m15[name] = m15_times
             except Exception:
                 LOGGER.exception("symbol cycle failed for %s", symbol)
-        await asyncio.to_thread(self.execution.trail_positions, atr_by_symbol)
-        if allow_revalidation:
+        if self.settings.strategy_mode == "liquidity_breakout":
+            await asyncio.to_thread(self.execution.move_positions_to_breakeven)
+        else:
+            await asyncio.to_thread(self.execution.trail_positions, atr_by_symbol)
+        if allow_revalidation and self.settings.strategy_mode == "calibrated":
             self.revalidation.observe(completed_m15)
         synced = await asyncio.to_thread(
             self.journal.sync_mt5_history,
@@ -292,7 +469,10 @@ class TradingApplication:
         """Run one complete dry-run cycle for deployment verification."""
         if self.settings.trading_enabled or not self.settings.dry_run:
             raise PermissionError("run_once is restricted to dry-run mode")
-        if self.settings.predictive_mode == "shadow":
+        if (
+            self.settings.strategy_mode == "calibrated"
+            and self.settings.predictive_mode == "shadow"
+        ):
             await asyncio.to_thread(self.quant.load)
         await asyncio.to_thread(self.execution.connect)
         account = self.execution.mt5.account_info()
@@ -308,7 +488,10 @@ class TradingApplication:
             LOGGER.info("MT5 DEMO smoke-test session shut down cleanly")
 
     async def run(self) -> None:
-        if self.settings.predictive_mode == "shadow":
+        if (
+            self.settings.strategy_mode == "calibrated"
+            and self.settings.predictive_mode == "shadow"
+        ):
             # Fail before MT5 routing if the active shadow baseline is absent/invalid.
             await asyncio.to_thread(self.quant.load)
         await asyncio.to_thread(self.execution.connect)
@@ -318,9 +501,10 @@ class TradingApplication:
         synced = await asyncio.to_thread(self.journal.sync_mt5_history, self.execution.mt5, account)
         LOGGER.info("startup journal sync orders=%d deals=%d", synced["orders"], synced["deals"])
         LOGGER.info(
-            "MT5 connected mode=%s routing=%s predictive_mode=%s",
+            "MT5 connected mode=%s routing=%s strategy_mode=%s predictive_mode=%s",
             "DEMO required" if self.settings.require_demo_account else "configured account",
             "ENABLED" if self.settings.trading_enabled and not self.settings.dry_run else "DRY-RUN",
+            self.settings.strategy_mode.upper(),
             self.settings.predictive_mode.upper(),
         )
         try:

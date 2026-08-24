@@ -195,6 +195,44 @@ separate forward sample is large enough to assess.
 
 `autogen_orchestration.py` defines an optional Microsoft AutoGen round-robin implementer/reviewer team using `Qwen2.5-Coder-7B-Instruct` through a local OpenAI-compatible endpoint. It is deliberately outside the trading runtime and has no MT5 tools. Set `QWEN_BASE_URL`, start the local Qwen server, and call `review_task()` from a maintenance script when code review is wanted.
 
+## Institutional liquidity breakout strategy (opt-in DEMO)
+
+The existing `Start-CryptoAgent.bat` calibrated route is unchanged. To select the
+new strategy explicitly, run the non-live launcher check first:
+
+```powershell
+.\Start-CryptoAgent-Liquidity-Demo.bat --check
+```
+
+Then double-click `Start-CryptoAgent-Liquidity-Demo.bat` to permit orders only on
+the configured MT5 DEMO account. The strategy uses completed candles exclusively:
+
+1. H4: requires at least three repeated touches of a recent range boundary and
+   locates the nearest older swing beyond that boundary as the liquidity target.
+2. M15: uses the preceding structure boundary for breakout confirmation and the
+   nearest eight-bar structural extreme for the fixed stop.
+3. M3: requires a directional breakout candle with at least 60% body/range and
+   tick volume at least 1.2 times the prior 20-bar average.
+4. Broker-price planning rechecks that reward/risk is at least 1:2.5 before sizing.
+
+No retail-positioning feed is available, so retail bait is a deterministic
+repeated-touch price-structure proxy, not a claim about measured crowd positions.
+The 25% of up-to-$1,000 daily target is an anti-greed stop ceiling, not an expected
+or guaranteed return. Per-trade loss remains capped at 2% of account equity, broker
+minimum-stop and margin limits remain enforced, and every order has a fixed SL/TP.
+
+The Asia/Kolkata daily gate counts only `LiquidityBreakout` position IDs for Expert
+ID `26081301`, includes commission, swap, and fees in realized P/L, permits at most
+three entries, and stops new entries once the daily target is realized. Only
+positions carrying `CryptoAgent|LiquidityBreakout` are moved to breakeven at 2R;
+minor pullbacks do not cause discretionary closes.
+
+Each evaluation is logged as `LIQUIDITY_EVALUATION` JSON and persisted to
+`liquidity_signals`, including the H4 bias/target, bait level, M3 entry, M15 stop,
+RRR, risk, projected reward, status, and notes. This is a new unvalidated strategy:
+keep it on DEMO until deterministic replay and reconciled forward evidence support
+any later promotion decision.
+
 ## Trade journal and performance report
 
 CryptoAgent continuously writes an ignored local SQLite journal to

@@ -355,6 +355,7 @@ def generate_report(settings: Settings = SETTINGS) -> dict[str, Path]:
         ("account_snapshots", "equity_snapshots.csv"),
         ("submissions", "submissions.csv"),
         ("order_plan_rejections", "order_plan_rejections.csv"),
+        ("liquidity_signals", "liquidity_signals.csv"),
     ):
         path = output / filename
         _write_csv(path, [dict(row) for row in journal.rows(table)])
