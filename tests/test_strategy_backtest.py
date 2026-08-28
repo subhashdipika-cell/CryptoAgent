@@ -13,6 +13,7 @@ from strategy_backtest import (
     _exit_for_bar,
     _research_side_allowed,
     _research_replay_bounds,
+    _research_trend_allowed,
     _round_trip_commission,
     prepare_research_policy,
 )
@@ -20,6 +21,15 @@ import strategy_backtest
 
 
 class StrategyBacktestTests(unittest.TestCase):
+    def test_h1_trend_filter_uses_completed_history_direction(self):
+        rising = np.arange(1.0, 61.0)
+        falling = rising[::-1]
+        self.assertTrue(_research_trend_allowed(Side.BUY, rising, 50))
+        self.assertFalse(_research_trend_allowed(Side.SELL, rising, 50))
+        self.assertTrue(_research_trend_allowed(Side.SELL, falling, 50))
+        self.assertFalse(_research_trend_allowed(Side.BUY, falling, 50))
+        self.assertTrue(_research_trend_allowed(Side.BUY, rising, 0))
+
     def test_development_walk_forward_bounds_are_chronological(self):
         start, end, classification, fold = _research_replay_bounds(
             1000,

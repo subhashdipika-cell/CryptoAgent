@@ -135,6 +135,7 @@ def append_research_experiment(
             "max_risk_fraction": float(
                 policy.get("research_max_risk_fraction", SETTINGS.max_risk_fraction)
             ),
+            "h1_trend_ema_period": int(policy.get("research_h1_trend_ema_period", 0)),
         },
         "costs": {
             "commission_per_lot_side": commission_per_lot_side,
@@ -208,6 +209,21 @@ def _research_replay_bounds(
     if end - start < 3:
         raise ValueError("research replay window is too short after history requirements")
     return start, end, classification, str(window.get("fold_id", "UNSPECIFIED"))
+
+
+def _research_trend_allowed(side: Side, closes: np.ndarray, ema_period: int) -> bool:
+    if ema_period == 0:
+        return True
+    if ema_period < 2:
+        raise ValueError("research H1 trend EMA period must be zero or at least two")
+    values = np.asarray(closes, dtype=float)
+    if len(values) < ema_period:
+        return False
+    alpha = 2.0 / (ema_period + 1.0)
+    ema = float(values[0])
+    for value in values[1:]:
+        ema = alpha * float(value) + (1.0 - alpha) * ema
+    return float(values[-1]) > ema if side is Side.BUY else float(values[-1]) < ema
 
 
 def _timestamp(value: int) -> str:
@@ -294,6 +310,7 @@ def backtest_symbol(
     policy_payload = json.loads(settings.decision_policy_path.read_text(encoding="utf-8"))
     policy = next(row for row in policy_payload["policies"] if row["symbol"] == symbol)
     research_side_filter = str(policy_payload.get("research_side_filter", "BOTH")).upper()
+    research_h1_trend_ema_period = int(policy_payload.get("research_h1_trend_ema_period", 0))
     if not policy["enabled"] or not policy.get("approved", False):
         return [], {"symbol": symbol, "status": "DISABLED_BY_HOLDOUT_POLICY"}
 
@@ -322,6 +339,7 @@ def backtest_symbol(
     pending: Position | None = None
     trades: list[BacktestTrade] = []
     evaluated = entries_blocked_by_risk = entries_blocked_by_side_filter = 0
+    entries_blocked_by_trend_filter = 0
     last_h1_decision_index = -1
 
     for index in range(start_index, evaluation_end_index - 1):
@@ -391,10 +409,15 @@ def backtest_symbol(
             h1_forecast = engine.forecast(symbol, h1_training, "1h")
             outcome = decisions.evaluate(symbol, m15_forecast, h1_forecast, 0.5, True)
             evaluated += 1
-            if outcome.side and _research_side_allowed(outcome.side, research_side_filter):
-                pending = Position(symbol, outcome.side, 0.0, 0, 0.0, 0.0, 0.0, atr, 0.0)
-            elif outcome.side:
-                entries_blocked_by_side_filter += 1
+            if outcome.side:
+                if not _research_side_allowed(outcome.side, research_side_filter):
+                    entries_blocked_by_side_filter += 1
+                elif not _research_trend_allowed(
+                    outcome.side, h1_training["close"], research_h1_trend_ema_period
+                ):
+                    entries_blocked_by_trend_filter += 1
+                else:
+                    pending = Position(symbol, outcome.side, 0.0, 0, 0.0, 0.0, 0.0, atr, 0.0)
 
     if position is not None:
         row = m15[evaluation_end_index - 1]
@@ -448,7 +471,9 @@ def backtest_symbol(
         "evaluated_entry_bars": evaluated,
         "entries_blocked_by_risk": entries_blocked_by_risk,
         "entries_blocked_by_side_filter": entries_blocked_by_side_filter,
+        "entries_blocked_by_trend_filter": entries_blocked_by_trend_filter,
         "research_side_filter": research_side_filter,
+        "research_h1_trend_ema_period": research_h1_trend_ema_period,
         "risk_cap_pct": settings.max_risk_fraction * 100.0,
         "commission_per_lot_per_side": commission_per_lot_side,
         "slippage_points_per_fill": slippage_points,
