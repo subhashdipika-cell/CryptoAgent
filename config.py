@@ -29,6 +29,9 @@ CANDIDATE_POLICY_PATH = Path(
 REVALIDATION_STATE_PATH = Path(
     os.getenv("REVALIDATION_STATE_PATH", DATA_DIR / "revalidation_state.json")
 )
+STRATEGY_READINESS_PATH = Path(
+    os.getenv("STRATEGY_READINESS_PATH", POLICY_DIR / "strategy_readiness.json")
+)
 
 # Set these before chronos/transformers is imported anywhere else.
 os.environ["HF_HUB_OFFLINE"] = "1"
@@ -105,6 +108,10 @@ class Settings:
     decision_policy_path: Path = DECISION_POLICY_PATH
     candidate_policy_path: Path = CANDIDATE_POLICY_PATH
     revalidation_state_path: Path = REVALIDATION_STATE_PATH
+    strategy_readiness_path: Path = STRATEGY_READINESS_PATH
+    readiness_max_age_minutes: int = field(
+        default_factory=lambda: int(os.getenv("READINESS_MAX_AGE_MINUTES", "15"))
+    )
     history_sync_days: int = field(
         default_factory=lambda: int(os.getenv("HISTORY_SYNC_DAYS", "3650"))
     )

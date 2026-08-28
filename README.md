@@ -63,11 +63,15 @@ This workstation's verified Vantage DEMO terminal uses `BTCUSD` and the broker-s
 .\Start-CryptoAgent.bat
 ```
 
-Double-click `Start-CryptoAgent.bat` to enable order routing to the verified DEMO
-terminal. The launcher forces `REQUIRE_DEMO_ACCOUNT=true`, and the runtime refuses
-to connect if the selected account is not DEMO. It retains the 2% equity risk cap,
-initial SL/TP requirement, and ATR trailing controls. Validate its local terminal,
-environment, model, and symbol configuration without starting the loop:
+`Start-CryptoAgent.bat` requests order routing to the verified DEMO terminal, but
+startup also requires the selected strategy to be `DEMO_READY` in
+`policies/strategy_readiness.json`. Missing, rejected, revoked, research-only, or
+configuration-stale readiness evidence fails closed before forecast or execution
+engines initialize. Readiness and its successful DEMO reconciliation proof expire
+after 15 minutes by default. The launcher also forces `REQUIRE_DEMO_ACCOUNT=true`; the
+runtime refuses any non-DEMO account and retains the 2% equity risk cap, initial
+SL/TP requirement, and ATR trailing controls. Validate its local terminal,
+environment, model, symbol, and readiness configuration without starting the loop:
 
 ```powershell
 .\Start-CryptoAgent.bat --check
@@ -270,6 +274,29 @@ per asset before leaving `INSUFFICIENT_FORWARD_EVIDENCE`. The threshold indicate
 sample availability, not profitability or promotion eligibility. Reporting is
 read-only and never changes policy, eligibility, sizing, or order routing.
 
+## Strategy readiness dashboard and deployment gate
+
+Refresh reconciled DEMO evidence first, then generate the auditable readiness
+registry and dashboard:
+
+```powershell
+$env:TRADING_ENABLED = "false"
+$env:DRY_RUN = "true"
+.\.venv\Scripts\python.exe performance_report.py --sync
+.\.venv\Scripts\python.exe strategy_readiness.py generate
+```
+
+Open `reports/strategy_readiness.html` for the human-readable dashboard. The
+tracked `policies/strategy_readiness.json` is the runtime control record. A
+strategy becomes `DEMO_READY` only when its own reconciled forward DEMO evidence
+has at least 30 closed trades over 10 sessions, positive net expectancy after
+costs, profit factor of at least 1.20, maximum drawdown no greater than 5%, and an
+enabled, approved policy. Backtests and replay remain separately labelled and
+cannot make a strategy deployable. Any strategy or policy-code change invalidates
+the stored configuration hash and blocks routing until evidence is regenerated.
+This gate authorizes DEMO routing only and never authorizes LIVE trading or
+guarantees future profit.
+
 ## Module map
 
 - `config.py`: offline flags, credentials, account/risk gates, paths.
@@ -278,6 +305,7 @@ read-only and never changes policy, eligibility, sizing, or order routing.
 - `foundation_backends.py`: offline IBM TTM-R3 and Google TimesFM 2.5 adapters.
 - `predictive_validation.py`: completed-bar walk-forward validation and reports.
 - `strategy_backtest.py`: broker-aware calibrated-policy execution replay.
+- `strategy_readiness.py`: readiness registry, HTML dashboard, and fail-closed DEMO deployment gate.
 - `paper_risk_report.py`: read-only XAUUSD 0.01-lot minimum-equity and ATR report.
 - `sentiment_engine.py`: pooled async RSS/API collection and FinBERT fallback.
 - `execution_agent.py`: MT5 state, sizing, initial SL/TP order payload, trailing stops.

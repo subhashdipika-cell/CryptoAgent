@@ -204,7 +204,11 @@ class TradeJournalTests(unittest.TestCase):
 
         self.assertEqual(row["evidence_state"], FORWARD_EVIDENCE_AVAILABLE)
         self.assertEqual(row["sample_size"], 1)
+        self.assertEqual(row["sessions"], 1)
         self.assertAlmostEqual(row["net_profit_after_costs"], 1.75)
+        self.assertAlmostEqual(row["expectancy_after_costs"], 1.75)
+        self.assertAlmostEqual(row["starting_equity"], 1000.0)
+        self.assertAlmostEqual(row["max_drawdown_pct"], 0.0)
         self.assertAlmostEqual(row["win_rate_pct"], 100.0)
         self.assertAlmostEqual(row["profit_factor"], float("inf"))
         self.assertAlmostEqual(row["max_drawdown"], 0.0)

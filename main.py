@@ -22,6 +22,7 @@ from execution_agent import MT5ExecutionAgent, Side
 from quant_engine import ChronosForecastEngine, ForecastResult, close_prices, true_range_atr
 from revalidation_scheduler import RevalidationScheduler
 from sentiment_engine import SentimentEngine, SentimentResult
+from strategy_readiness import assert_strategy_deployment_ready
 from trade_journal import TradeJournal
 
 
@@ -54,6 +55,7 @@ def combined_side(m15: ForecastResult, h1: ForecastResult, sentiment: float, thr
 class TradingApplication:
     def __init__(self, settings: Settings = SETTINGS):
         settings.validate()
+        assert_strategy_deployment_ready(settings)
         self.settings = settings
         self.quant = ChronosForecastEngine(settings)
         self.dedicated_quant = DedicatedAssetForecastEngine(settings)

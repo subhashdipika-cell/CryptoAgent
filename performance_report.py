@@ -261,8 +261,9 @@ def forward_evidence(
     expert_ids: set[int] | None = None,
 ) -> list[dict[str, Any]]:
     """Summarize only completed, reconciled DEMO trades entered while policy was active."""
+    snapshots = list(snapshot_rows)
     windows = policy_activation_windows(policy_payload)
-    demo = demo_accounts(snapshot_rows)
+    demo = demo_accounts(snapshots)
     symbols = sorted({str(row["symbol"]) for row in policy_payload.get("policies", [])})
     rows: list[dict[str, Any]] = []
     for symbol in symbols:
@@ -281,6 +282,31 @@ def forward_evidence(
                 ):
                     eligible.append(trade)
         result = metrics(eligible)
+        starting_equity = 0.0
+        if eligible:
+            first_entry = min(_parse_time(trade.entry_time) for trade in eligible)
+            accounts = {(trade.account_login, trade.server) for trade in eligible}
+            for account in accounts:
+                candidates = [
+                    row for row in snapshots
+                    if (int(row["account_login"]), str(row["server"])) == account
+                    and float(row["equity"]) > 0
+                ]
+                prior = [
+                    row for row in candidates
+                    if _parse_time(str(row["recorded_at"])) <= first_entry
+                ]
+                selected = (
+                    max(prior, key=lambda row: str(row["recorded_at"]))
+                    if prior else (
+                        min(candidates, key=lambda row: str(row["recorded_at"]))
+                        if candidates else None
+                    )
+                )
+                if selected is not None:
+                    starting_equity += float(selected["equity"])
+        sessions = len({_parse_time(trade.entry_time).date() for trade in eligible})
+        drawdown = abs(result["max_closed_trade_drawdown"])
         rows.append(
             {
                 "symbol": symbol,
@@ -291,6 +317,7 @@ def forward_evidence(
                 ),
                 "minimum_sample_size": minimum_trades,
                 "sample_size": result["trades"],
+                "sessions": sessions,
                 "activation_at": window[0].isoformat(timespec="seconds") if window else None,
                 "deactivation_at": (
                     window[1].isoformat(timespec="seconds")
@@ -298,8 +325,13 @@ def forward_evidence(
                     else None
                 ),
                 "net_profit_after_costs": result["net_profit"],
+                "expectancy_after_costs": result["expectancy"],
                 "costs": result["costs"],
-                "max_drawdown": abs(result["max_closed_trade_drawdown"]),
+                "starting_equity": starting_equity or None,
+                "max_drawdown": drawdown,
+                "max_drawdown_pct": (
+                    drawdown / starting_equity * 100.0 if starting_equity > 0 else None
+                ),
                 "win_rate_pct": result["win_rate_pct"],
                 "profit_factor": result["profit_factor"],
             }
@@ -430,7 +462,7 @@ th:first-child,td:first-child{{text-align:left}}th{{color:#93c5fd}}.note{{color:
 <div class="grid">{''.join(f'<div class="card"><div>{html.escape(key.replace("_", " ").title())}</div><div class="value">{html.escape(_format(value))}</div></div>' for key, value in overall.items())}</div>
 <h2>Forward evidence after policy activation</h2>
 <p class="note">Read-only evidence from fully reconciled deals whose entry occurred while the asset policy was active and whose account/server latest snapshot is MT5 DEMO. A minimum of {MIN_FORWARD_EVIDENCE_TRADES} completed trades per asset is required to leave {INSUFFICIENT_FORWARD_EVIDENCE}. These results do not alter policy, eligibility, sizing, or routing.</p>
-{_table(['Symbol','Evidence state','Minimum sample','Sample size','Activated at (UTC)','Deactivated at (UTC)','Net P/L after costs','Costs','Max drawdown','Win rate %','Profit factor'], [[row['symbol'], row['evidence_state'], row['minimum_sample_size'], row['sample_size'], row['activation_at'], row['deactivation_at'], row['net_profit_after_costs'], row['costs'], row['max_drawdown'], row['win_rate_pct'], row['profit_factor']] for row in evidence_rows])}
+{_table(['Symbol','Evidence state','Minimum sample','Sample size','Sessions','Activated at (UTC)','Deactivated at (UTC)','Net P/L after costs','Expectancy','Costs','Starting equity','Max drawdown','Max drawdown %','Win rate %','Profit factor'], [[row['symbol'], row['evidence_state'], row['minimum_sample_size'], row['sample_size'], row['sessions'], row['activation_at'], row['deactivation_at'], row['net_profit_after_costs'], row['expectancy_after_costs'], row['costs'], row['starting_equity'], row['max_drawdown'], row['max_drawdown_pct'], row['win_rate_pct'], row['profit_factor']] for row in evidence_rows])}
 <h2>Strategy and asset breakdown</h2>
 {_table(['Strategy','Symbol','Trades','Win rate %','Net P/L','Profit factor','Max drawdown'], group_rows)}
 <h2>Latest completed trades</h2>
@@ -457,7 +489,21 @@ def sync_from_terminal(settings: Settings = SETTINGS) -> dict[str, int]:
         if account is None:
             raise RuntimeError("MT5 account unavailable")
         journal.record_account(account, agent.snapshot())
-        return journal.sync_mt5_history(agent.mt5, account)
+        counts = journal.sync_mt5_history(agent.mt5, account)
+        marker = {
+            "status": "SUCCESS",
+            "synced_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "account_login": int(account.login),
+            "server": str(account.server),
+            "trade_mode": getattr(account, "trade_mode", None),
+            "require_demo_account": settings.require_demo_account,
+            "orders": counts["orders"],
+            "deals": counts["deals"],
+        }
+        marker_path = Path(settings.report_dir) / "reconciliation_status.json"
+        marker_path.parent.mkdir(parents=True, exist_ok=True)
+        marker_path.write_text(json.dumps(marker, indent=2) + "\n", encoding="utf-8")
+        return counts
     finally:
         agent.shutdown()
 
