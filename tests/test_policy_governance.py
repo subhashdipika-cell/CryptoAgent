@@ -5,7 +5,7 @@ from pathlib import Path
 
 from config import Settings
 from decision_engine import CalibratedDecisionEngine
-from policy_admin import approve
+from policy_admin import approve, revoke
 from predictive_validation import FoldResult, calibrate_h1_policy
 from revalidation_scheduler import RevalidationScheduler
 
@@ -61,6 +61,54 @@ class PolicyGovernanceTests(unittest.TestCase):
         self.assertEqual(active["approval_audit"][-1]["approved_at"], promoted["activated_at"])
         engine = CalibratedDecisionEngine(self.active)
         self.assertEqual(engine.decision_mode("BTCUSD"), "M15_H1")
+
+    def test_forward_evidence_rejection_revokes_policy_and_records_audit(self):
+        payload = json.loads(self.active.read_text())
+        payload["policies"][0].update(
+            {"approved": True, "activated_at": "2026-08-13T13:18:27+00:00"}
+        )
+        self.active.write_text(json.dumps(payload))
+
+        revoked = revoke("XAUUSD+", "Forward DEMO profit factor below 1.0", self.settings)
+
+        self.assertFalse(revoked["enabled"])
+        self.assertFalse(revoked["approved"])
+        active = json.loads(self.active.read_text())
+        audit = active["approval_audit"][-1]
+        self.assertEqual(audit["action"], "FORWARD_EVIDENCE_REJECTION")
+        self.assertEqual(audit["reason"], "Forward DEMO profit factor below 1.0")
+        self.assertIn("rejected_at", audit)
+        audit_count = len(active["approval_audit"])
+        self.assertEqual(
+            revoke("XAUUSD+", "Repeated monitor run", self.settings),
+            revoked,
+        )
+        self.assertEqual(
+            len(json.loads(self.active.read_text())["approval_audit"]),
+            audit_count,
+        )
+        engine = CalibratedDecisionEngine(self.active)
+        decision = engine.evaluate(
+            "XAUUSD+",
+            self._forecast("XAU-DirectRidge"),
+            self._forecast("XAU-DirectRidge"),
+            sentiment=0.5,
+            sentiment_degraded=True,
+        )
+        self.assertEqual(decision.reason, "UNVALIDATED_MODEL")
+
+    @staticmethod
+    def _forecast(model_name: str):
+        from quant_engine import ForecastResult
+
+        return ForecastResult(
+            direction="BULLISH",
+            probability=0.9,
+            normalized_slope=0.01,
+            edge_bps=20.0,
+            predictions=(1.0, 1.0, 1.0, 1.0, 1.0),
+            model_name=model_name,
+        )
 
     def test_h1_candidate_passes_only_on_positive_untouched_holdout(self):
         folds = [
