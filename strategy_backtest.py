@@ -69,6 +69,11 @@ def prepare_research_policy(settings: Settings, source: Path) -> tuple[Settings,
     )
     if take_profit_atr <= 0:
         raise ValueError("research take-profit ATR multiple must be positive")
+    max_risk_fraction = float(
+        payload.get("research_max_risk_fraction", settings.max_risk_fraction)
+    )
+    if max_risk_fraction <= 0 or max_risk_fraction > settings.max_risk_fraction:
+        raise ValueError("research max-risk fraction must be positive and cannot exceed runtime risk")
     payload["research_only_replay"] = True
     handle = tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False)
     try:
@@ -83,6 +88,7 @@ def prepare_research_policy(settings: Settings, source: Path) -> tuple[Settings,
             trading_enabled=False,
             dry_run=True,
             take_profit_atr_multiple=take_profit_atr,
+            max_risk_fraction=max_risk_fraction,
         ),
         path,
     )
@@ -125,6 +131,9 @@ def append_research_experiment(
             "side_filter": str(policy.get("research_side_filter", "BOTH")).upper(),
             "take_profit_atr_multiple": float(
                 policy.get("research_take_profit_atr_multiple", SETTINGS.take_profit_atr_multiple)
+            ),
+            "max_risk_fraction": float(
+                policy.get("research_max_risk_fraction", SETTINGS.max_risk_fraction)
             ),
         },
         "costs": {

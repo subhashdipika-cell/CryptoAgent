@@ -30,6 +30,7 @@ class StrategyBacktestTests(unittest.TestCase):
             source.write_text(
                 json.dumps({
                     "research_take_profit_atr_multiple": 2.5,
+                    "research_max_risk_fraction": 0.005,
                     "policies": [{"symbol": "BTCUSD", "enabled": True, "approved": False}],
                 }),
                 encoding="utf-8",
@@ -44,6 +45,7 @@ class StrategyBacktestTests(unittest.TestCase):
             self.assertFalse(settings.trading_enabled)
             self.assertTrue(settings.dry_run)
             self.assertEqual(settings.take_profit_atr_multiple, 2.5)
+            self.assertEqual(settings.max_risk_fraction, 0.005)
             self.assertTrue(copied["research_only_replay"])
             self.assertTrue(copied["policies"][0]["approved"])
             original = json.loads(source.read_text(encoding="utf-8"))
@@ -61,6 +63,21 @@ class StrategyBacktestTests(unittest.TestCase):
             )
             with self.assertRaises(ValueError):
                 prepare_research_policy(Settings(mt5_terminal_path="test"), source)
+
+    def test_research_risk_override_cannot_exceed_runtime_risk(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "candidate.json"
+            source.write_text(
+                json.dumps({
+                    "research_max_risk_fraction": 0.03,
+                    "policies": [{"symbol": "BTCUSD", "enabled": True, "approved": False}],
+                }),
+                encoding="utf-8",
+            )
+            with self.assertRaises(ValueError):
+                prepare_research_policy(
+                    Settings(mt5_terminal_path="test", max_risk_fraction=0.02), source
+                )
 
     def test_commission_scales_with_volume_at_observed_broker_rate(self):
         self.assertAlmostEqual(_round_trip_commission(0.01, 3.0), 0.06)
