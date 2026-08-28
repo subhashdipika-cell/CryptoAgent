@@ -92,6 +92,7 @@ def search(
     slippage_points: float,
     volume_expansion: float | None = None,
     momentum_body_fraction: float | None = None,
+    minimum_rrr: float | None = None,
 ) -> dict[str, object]:
     tested_volume_expansion = (
         settings.liquidity_volume_expansion
@@ -101,7 +102,16 @@ def search(
         settings.liquidity_momentum_body_fraction
         if momentum_body_fraction is None else momentum_body_fraction
     )
-    if momentum_body_fraction is not None:
+    tested_minimum_rrr = (
+        settings.liquidity_min_rrr if minimum_rrr is None else minimum_rrr
+    )
+    if minimum_rrr is not None:
+        research_dimension = {
+            "name": "minimum_rrr",
+            "baseline": settings.liquidity_min_rrr,
+            "candidate": tested_minimum_rrr,
+        }
+    elif momentum_body_fraction is not None:
         research_dimension = {
             "name": "momentum_body_fraction",
             "baseline": settings.liquidity_momentum_body_fraction,
@@ -145,6 +155,7 @@ def search(
                 "h4_history_bars": history_bars,
                 "volume_expansion": tested_volume_expansion,
                 "momentum_body_fraction": tested_momentum_body_fraction,
+                "minimum_rrr": tested_minimum_rrr,
             }
             trades, _ = run_backtest(
                 execution,
@@ -247,7 +258,16 @@ def main() -> None:
     parser.add_argument("--slippage-points", type=float, default=10.0)
     parser.add_argument("--volume-expansion", type=float)
     parser.add_argument("--momentum-body-fraction", type=float)
+    parser.add_argument("--minimum-rrr", type=float)
     args = parser.parse_args()
+    override_count = sum(
+        value is not None
+        for value in (
+            args.volume_expansion,
+            args.momentum_body_fraction,
+            args.minimum_rrr,
+        )
+    )
     if (
         args.m3_bars < 500
         or args.starting_equity <= 0
@@ -256,15 +276,14 @@ def main() -> None:
             args.momentum_body_fraction is not None
             and not 0 < args.momentum_body_fraction <= 1
         )
-        or (
-            args.volume_expansion is not None
-            and args.momentum_body_fraction is not None
-        )
+        or (args.minimum_rrr is not None and args.minimum_rrr < 1)
+        or override_count > 1
     ):
         raise ValueError(
             "m3-bars must be >= 500, starting equity must be positive, and "
             "volume expansion must be positive, momentum body fraction must be "
-            "in (0, 1], and only one research override may be supplied"
+            "in (0, 1], minimum RRR must be at least 1, and only one research "
+            "override may be supplied"
         )
     settings = SETTINGS
     settings.validate()
@@ -280,6 +299,7 @@ def main() -> None:
             args.slippage_points,
             args.volume_expansion,
             args.momentum_body_fraction,
+            args.minimum_rrr,
         )
     finally:
         execution.shutdown()
