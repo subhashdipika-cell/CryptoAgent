@@ -1,9 +1,16 @@
 import unittest
 
-from liquidity_parameter_search import parameter_distance, segment_metrics
+from liquidity_parameter_search import (
+    parameter_distance,
+    research_configuration_hash,
+    segment_metrics,
+)
 
 
 class LiquidityParameterSearchTests(unittest.TestCase):
+    def test_research_configuration_hash_covers_replay_implementation(self):
+        self.assertEqual(len(research_configuration_hash()), 64)
+
     def test_segment_metrics_include_cost_adjusted_drawdown(self):
         result = segment_metrics([10.0, -5.0, -10.0, 20.0], 1000.0)
         self.assertEqual(result["trades"], 4)

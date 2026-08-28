@@ -20,6 +20,17 @@ ZONE_BARS = (12, 18, 24)
 HISTORY_BARS = (72, 96)
 
 
+def research_configuration_hash() -> str:
+    digest = hashlib.sha256()
+    for filename in (
+        "liquidity_breakout.py",
+        "liquidity_backtest.py",
+        "liquidity_parameter_search.py",
+    ):
+        digest.update((BASE_DIR / filename).read_bytes())
+    return digest.hexdigest()
+
+
 def segment_metrics(profits: list[float], starting_equity: float) -> dict[str, float | int]:
     wins = [value for value in profits if value > 0]
     losses = [-value for value in profits if value < 0]
@@ -79,10 +90,23 @@ def search(
     starting_equity: float,
     commission_per_lot_side: float,
     slippage_points: float,
+    volume_expansion: float | None = None,
 ) -> dict[str, object]:
+    tested_volume_expansion = (
+        settings.liquidity_volume_expansion
+        if volume_expansion is None else volume_expansion
+    )
     histories = load_histories(execution, settings, m3_bars)
     payload: dict[str, object] = {
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "strategy_id": "liquidity_breakout",
+        "timeframes": ["H4", "M15", "M3"],
+        "configuration_hash": research_configuration_hash(),
+        "research_dimension": {
+            "name": "volume_expansion",
+            "baseline": settings.liquidity_volume_expansion,
+            "candidate": tested_volume_expansion,
+        },
         "evidence_class": "HISTORICAL_RESEARCH_NOT_FORWARD_EVIDENCE",
         "methodology": "50% calibration, 25% walk-forward selection, 25% untouched test revealed only for the selected stable configuration",
         "costs": {
@@ -106,6 +130,7 @@ def search(
                 "minimum_touches": touches,
                 "h4_zone_bars": zone_bars,
                 "h4_history_bars": history_bars,
+                "volume_expansion": tested_volume_expansion,
             }
             trades, _ = run_backtest(
                 execution,
@@ -206,9 +231,17 @@ def main() -> None:
     parser.add_argument("--starting-equity", type=float, default=1_000.0)
     parser.add_argument("--commission-per-lot-side", type=float, default=3.0)
     parser.add_argument("--slippage-points", type=float, default=10.0)
+    parser.add_argument("--volume-expansion", type=float)
     args = parser.parse_args()
-    if args.m3_bars < 500 or args.starting_equity <= 0:
-        raise ValueError("m3-bars must be >= 500 and starting equity must be positive")
+    if (
+        args.m3_bars < 500
+        or args.starting_equity <= 0
+        or (args.volume_expansion is not None and args.volume_expansion <= 0)
+    ):
+        raise ValueError(
+            "m3-bars must be >= 500, starting equity must be positive, and "
+            "volume expansion must be positive"
+        )
     settings = SETTINGS
     settings.validate()
     execution = MT5ExecutionAgent(settings)
@@ -221,6 +254,7 @@ def main() -> None:
             args.starting_equity,
             args.commission_per_lot_side,
             args.slippage_points,
+            args.volume_expansion,
         )
     finally:
         execution.shutdown()
