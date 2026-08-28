@@ -104,6 +104,20 @@ class LiquidityBreakoutTests(unittest.TestCase):
         self.assertIsNone(decision.side)
         self.assertEqual(decision.trade_status, "POSITION_ALREADY_OPEN")
 
+    def test_external_target_buffer_is_isolated_from_zone_touch_tolerance(self):
+        h4, m15, m3 = bullish_setup()
+        h4[80] = bar(
+            80, open_price=105.0, high=106.2, low=104.0, close=105.5
+        )
+        setup = (h4, m15, m3)
+        baseline = self.engine.evaluate("XAUUSD+", *setup)
+        relaxed = LiquidityBreakoutEngine(
+            external_target_buffer_atr=0.10
+        ).evaluate("XAUUSD+", *setup)
+
+        self.assertEqual(baseline.trade_status, "NO_WHALE_TARGET")
+        self.assertNotEqual(relaxed.trade_status, "NO_WHALE_TARGET")
+
 
     def test_daily_lock_prioritizes_profit_target_and_caps_three_entries(self):
         self.assertEqual(

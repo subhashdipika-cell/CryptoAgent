@@ -15,7 +15,8 @@ from execution_agent import MT5ExecutionAgent
 from liquidity_backtest import ReplayTrade, load_histories, run_backtest
 
 
-TOUCHES = (1, 2, 3)
+TOUCHES = (2, 3)
+TOUCH_DISTANCE_AXIS = (1, 2, 3)
 ZONE_BARS = (12, 18, 24)
 HISTORY_BARS = (72, 96)
 
@@ -50,7 +51,7 @@ def segment_metrics(profits: list[float], starting_equity: float) -> dict[str, f
 
 
 def parameter_distance(left: dict[str, int], right: dict[str, int]) -> int:
-    axes = (TOUCHES, ZONE_BARS, HISTORY_BARS)
+    axes = (TOUCH_DISTANCE_AXIS, ZONE_BARS, HISTORY_BARS)
     names = ("minimum_touches", "h4_zone_bars", "h4_history_bars")
     return sum(abs(axis.index(left[name]) - axis.index(right[name])) for axis, name in zip(axes, names))
 
@@ -94,6 +95,7 @@ def search(
     momentum_body_fraction: float | None = None,
     minimum_rrr: float | None = None,
     minimum_touches: int | None = None,
+    external_target_buffer_atr: float | None = None,
 ) -> dict[str, object]:
     tested_volume_expansion = (
         settings.liquidity_volume_expansion
@@ -106,7 +108,16 @@ def search(
     tested_minimum_rrr = (
         settings.liquidity_min_rrr if minimum_rrr is None else minimum_rrr
     )
-    if minimum_touches is not None:
+    tested_external_target_buffer = (
+        0.20 if external_target_buffer_atr is None else external_target_buffer_atr
+    )
+    if external_target_buffer_atr is not None:
+        research_dimension = {
+            "name": "external_target_buffer_atr",
+            "baseline": 0.20,
+            "candidate": tested_external_target_buffer,
+        }
+    elif minimum_touches is not None:
         research_dimension = {
             "name": "minimum_touches",
             "baseline": settings.liquidity_min_touches,
@@ -164,6 +175,7 @@ def search(
                 "volume_expansion": tested_volume_expansion,
                 "momentum_body_fraction": tested_momentum_body_fraction,
                 "minimum_rrr": tested_minimum_rrr,
+                "external_target_buffer_atr": tested_external_target_buffer,
             }
             trades, _ = run_backtest(
                 execution,
@@ -268,6 +280,7 @@ def main() -> None:
     parser.add_argument("--momentum-body-fraction", type=float)
     parser.add_argument("--minimum-rrr", type=float)
     parser.add_argument("--minimum-touches", type=int)
+    parser.add_argument("--external-target-buffer-atr", type=float)
     args = parser.parse_args()
     override_count = sum(
         value is not None
@@ -276,6 +289,7 @@ def main() -> None:
             args.momentum_body_fraction,
             args.minimum_rrr,
             args.minimum_touches,
+            args.external_target_buffer_atr,
         )
     )
     if (
@@ -288,6 +302,10 @@ def main() -> None:
         )
         or (args.minimum_rrr is not None and args.minimum_rrr < 1)
         or (args.minimum_touches is not None and args.minimum_touches < 1)
+        or (
+            args.external_target_buffer_atr is not None
+            and args.external_target_buffer_atr < 0
+        )
         or override_count > 1
     ):
         raise ValueError(
@@ -312,6 +330,7 @@ def main() -> None:
             args.momentum_body_fraction,
             args.minimum_rrr,
             args.minimum_touches,
+            args.external_target_buffer_atr,
         )
     finally:
         execution.shutdown()

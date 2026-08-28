@@ -122,6 +122,7 @@ class LiquidityBreakoutEngine:
         momentum_body_fraction: float = 0.60,
         h4_zone_bars: int = 24,
         h4_history_bars: int = 96,
+        external_target_buffer_atr: float = 0.20,
         m15_structure_bars: int = 20,
         m15_stop_bars: int = 8,
         m3_volume_bars: int = 20,
@@ -132,6 +133,7 @@ class LiquidityBreakoutEngine:
         self.momentum_body_fraction = momentum_body_fraction
         self.h4_zone_bars = h4_zone_bars
         self.h4_history_bars = h4_history_bars
+        self.external_target_buffer_atr = external_target_buffer_atr
         self.m15_structure_bars = m15_structure_bars
         self.m15_stop_bars = m15_stop_bars
         self.m3_volume_bars = m3_volume_bars
@@ -163,6 +165,10 @@ class LiquidityBreakoutEngine:
         upper = max(_number(row, "high") for row in zone)
         lower = min(_number(row, "low") for row in zone)
         tolerance = max(atr * 0.20, abs(_number(zone[-1], "close")) * 0.0005)
+        target_tolerance = max(
+            atr * self.external_target_buffer_atr,
+            abs(_number(zone[-1], "close")) * 0.0005,
+        )
         upper_touches = sum(_number(row, "high") >= upper - tolerance for row in zone)
         lower_touches = sum(_number(row, "low") <= lower + tolerance for row in zone)
         current = _number(zone[-1], "close")
@@ -175,13 +181,13 @@ class LiquidityBreakoutEngine:
         target: float | None = None
         if upper_touches >= self.minimum_touches and current >= midpoint and slope >= 0:
             candidates = sorted(
-                {_number(row, "high") for row in history if _number(row, "high") > upper + tolerance}
+                {_number(row, "high") for row in history if _number(row, "high") > upper + target_tolerance}
             )
             if candidates:
                 side, bias, bait, target = Side.BUY, "BULLISH_SWEEP", upper, candidates[0]
         elif lower_touches >= self.minimum_touches and current <= midpoint and slope <= 0:
             candidates = sorted(
-                {_number(row, "low") for row in history if _number(row, "low") < lower - tolerance},
+                {_number(row, "low") for row in history if _number(row, "low") < lower - target_tolerance},
                 reverse=True,
             )
             if candidates:
