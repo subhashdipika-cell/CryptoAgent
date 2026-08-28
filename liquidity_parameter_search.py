@@ -15,7 +15,7 @@ from execution_agent import MT5ExecutionAgent
 from liquidity_backtest import ReplayTrade, load_histories, run_backtest
 
 
-TOUCHES = (2, 3)
+TOUCHES = (1, 2, 3)
 ZONE_BARS = (12, 18, 24)
 HISTORY_BARS = (72, 96)
 
@@ -93,6 +93,7 @@ def search(
     volume_expansion: float | None = None,
     momentum_body_fraction: float | None = None,
     minimum_rrr: float | None = None,
+    minimum_touches: int | None = None,
 ) -> dict[str, object]:
     tested_volume_expansion = (
         settings.liquidity_volume_expansion
@@ -105,7 +106,13 @@ def search(
     tested_minimum_rrr = (
         settings.liquidity_min_rrr if minimum_rrr is None else minimum_rrr
     )
-    if minimum_rrr is not None:
+    if minimum_touches is not None:
+        research_dimension = {
+            "name": "minimum_touches",
+            "baseline": settings.liquidity_min_touches,
+            "candidate": minimum_touches,
+        }
+    elif minimum_rrr is not None:
         research_dimension = {
             "name": "minimum_rrr",
             "baseline": settings.liquidity_min_rrr,
@@ -146,8 +153,9 @@ def search(
         validation_end = start + 3 * (end - start) // 4
         symbol_settings = replace(settings, symbols=(symbol,))
         rows: list[dict[str, object]] = []
+        touches_grid = (minimum_touches,) if minimum_touches is not None else TOUCHES
         for touches, zone_bars, history_bars in itertools.product(
-            TOUCHES, ZONE_BARS, HISTORY_BARS
+            touches_grid, ZONE_BARS, HISTORY_BARS
         ):
             parameters = {
                 "minimum_touches": touches,
@@ -259,6 +267,7 @@ def main() -> None:
     parser.add_argument("--volume-expansion", type=float)
     parser.add_argument("--momentum-body-fraction", type=float)
     parser.add_argument("--minimum-rrr", type=float)
+    parser.add_argument("--minimum-touches", type=int)
     args = parser.parse_args()
     override_count = sum(
         value is not None
@@ -266,6 +275,7 @@ def main() -> None:
             args.volume_expansion,
             args.momentum_body_fraction,
             args.minimum_rrr,
+            args.minimum_touches,
         )
     )
     if (
@@ -277,13 +287,14 @@ def main() -> None:
             and not 0 < args.momentum_body_fraction <= 1
         )
         or (args.minimum_rrr is not None and args.minimum_rrr < 1)
+        or (args.minimum_touches is not None and args.minimum_touches < 1)
         or override_count > 1
     ):
         raise ValueError(
             "m3-bars must be >= 500, starting equity must be positive, and "
             "volume expansion must be positive, momentum body fraction must be "
             "in (0, 1], minimum RRR must be at least 1, and only one research "
-            "override may be supplied"
+            "override may be supplied; minimum touches must be at least 1"
         )
     settings = SETTINGS
     settings.validate()
@@ -300,6 +311,7 @@ def main() -> None:
             args.volume_expansion,
             args.momentum_body_fraction,
             args.minimum_rrr,
+            args.minimum_touches,
         )
     finally:
         execution.shutdown()
