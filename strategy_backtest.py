@@ -64,6 +64,11 @@ def prepare_research_policy(settings: Settings, source: Path) -> tuple[Settings,
         raise ValueError("research policy has no enabled candidate")
     for row in enabled:
         row["approved"] = True
+    take_profit_atr = float(
+        payload.get("research_take_profit_atr_multiple", settings.take_profit_atr_multiple)
+    )
+    if take_profit_atr <= 0:
+        raise ValueError("research take-profit ATR multiple must be positive")
     payload["research_only_replay"] = True
     handle = tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False)
     try:
@@ -77,6 +82,7 @@ def prepare_research_policy(settings: Settings, source: Path) -> tuple[Settings,
             decision_policy_path=path,
             trading_enabled=False,
             dry_run=True,
+            take_profit_atr_multiple=take_profit_atr,
         ),
         path,
     )
@@ -117,6 +123,9 @@ def append_research_experiment(
         ],
         "research_constraints": {
             "side_filter": str(policy.get("research_side_filter", "BOTH")).upper(),
+            "take_profit_atr_multiple": float(
+                policy.get("research_take_profit_atr_multiple", SETTINGS.take_profit_atr_multiple)
+            ),
         },
         "costs": {
             "commission_per_lot_side": commission_per_lot_side,

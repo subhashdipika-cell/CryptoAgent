@@ -28,7 +28,10 @@ class StrategyBacktestTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "candidate.json"
             source.write_text(
-                json.dumps({"policies": [{"symbol": "BTCUSD", "enabled": True, "approved": False}]}),
+                json.dumps({
+                    "research_take_profit_atr_multiple": 2.5,
+                    "policies": [{"symbol": "BTCUSD", "enabled": True, "approved": False}],
+                }),
                 encoding="utf-8",
             )
             settings, temporary = prepare_research_policy(
@@ -40,10 +43,24 @@ class StrategyBacktestTests(unittest.TestCase):
 
             self.assertFalse(settings.trading_enabled)
             self.assertTrue(settings.dry_run)
+            self.assertEqual(settings.take_profit_atr_multiple, 2.5)
             self.assertTrue(copied["research_only_replay"])
             self.assertTrue(copied["policies"][0]["approved"])
             original = json.loads(source.read_text(encoding="utf-8"))
             self.assertFalse(original["policies"][0]["approved"])
+
+    def test_research_take_profit_override_rejects_non_positive_value(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "candidate.json"
+            source.write_text(
+                json.dumps({
+                    "research_take_profit_atr_multiple": 0,
+                    "policies": [{"symbol": "BTCUSD", "enabled": True, "approved": False}],
+                }),
+                encoding="utf-8",
+            )
+            with self.assertRaises(ValueError):
+                prepare_research_policy(Settings(mt5_terminal_path="test"), source)
 
     def test_commission_scales_with_volume_at_observed_broker_rate(self):
         self.assertAlmostEqual(_round_trip_commission(0.01, 3.0), 0.06)
