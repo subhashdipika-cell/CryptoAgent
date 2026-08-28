@@ -111,7 +111,7 @@ def append_research_experiment(
         digest.update((Path(__file__).resolve().parent / filename).read_bytes())
     configuration_hash = digest.hexdigest()
     backtested = [row for row in summaries if row.get("status") == "BACKTESTED"]
-    passed = bool(backtested) and all(
+    basic_metrics_pass = bool(backtested) and all(
         int(row.get("trades", 0)) >= 30
         and float(row.get("expectancy", 0.0)) > 0
         and float(row.get("profit_factor", 0.0)) >= 1.20
@@ -141,7 +141,27 @@ def append_research_experiment(
             "slippage_points_per_fill": slippage_points,
         },
         "replay": summaries,
-        "result": "REPLAY_GATE_PASS" if passed else "REPLAY_GATE_REJECTED",
+        "result": (
+            "BASIC_REPLAY_METRICS_PASS_UNTOUCHED_NOT_PROVEN"
+            if basic_metrics_pass
+            else "REPLAY_GATE_REJECTED"
+        ),
+        "promotion_eligible": False,
+        "promotion_blockers": [
+            "WALK_FORWARD_STABILITY_NOT_PROVEN",
+            "UNTOUCHED_TEST_NOT_PROVEN",
+            "FORWARD_DEMO_NOT_STARTED",
+        ],
+        "validation_windows": [
+            {
+                "symbol": row.get("symbol"),
+                "classification": "PREVIOUSLY_OBSERVED_POLICY_REPLAY",
+                "period_start_utc": row.get("period_start_utc"),
+                "period_end_utc": row.get("period_end_utc"),
+                "trades": row.get("trades", 0),
+            }
+            for row in backtested
+        ],
         "routing_changed": False,
         "forward_demo_status": "NOT_STARTED",
     }
@@ -412,7 +432,8 @@ def write_report(settings: Settings, summaries: list[dict[str, object]], trades:
             "historical spread is used where MT5 supplies it",
             "trailing updates occur at bar close and apply from the following bar",
             "results are not forward trading evidence",
-            "the replay period was used to decide whether the policy passed its deployment gate and is not a second untouched test set",
+            "the replay period is previously observed research evidence and is not an untouched test set",
+            "basic replay metric passes remain ineligible for promotion until walk-forward stability and a new untouched window are proven",
         ],
         "summaries": summaries,
     }

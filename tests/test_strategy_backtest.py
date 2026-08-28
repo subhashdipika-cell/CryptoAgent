@@ -4,6 +4,7 @@ import tempfile
 from pathlib import Path
 
 import numpy as np
+import inspect
 
 from execution_agent import Side
 from config import Settings
@@ -14,9 +15,17 @@ from strategy_backtest import (
     _round_trip_commission,
     prepare_research_policy,
 )
+import strategy_backtest
 
 
 class StrategyBacktestTests(unittest.TestCase):
+    def test_replay_metric_pass_cannot_claim_promotion_or_untouched_evidence(self):
+        source = inspect.getsource(strategy_backtest.append_research_experiment)
+        self.assertIn("BASIC_REPLAY_METRICS_PASS_UNTOUCHED_NOT_PROVEN", source)
+        self.assertIn('"promotion_eligible": False', source)
+        self.assertIn('"UNTOUCHED_TEST_NOT_PROVEN"', source)
+        self.assertNotIn('"REPLAY_GATE_PASS" if', source)
+
     def test_research_side_filter_is_explicit_and_fail_closed(self):
         self.assertTrue(_research_side_allowed(Side.BUY, "BUY"))
         self.assertFalse(_research_side_allowed(Side.SELL, "BUY"))
