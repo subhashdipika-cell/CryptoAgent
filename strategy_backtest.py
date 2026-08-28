@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import html
 import json
 import math
-from dataclasses import asdict, dataclass
+import tempfile
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -52,6 +54,84 @@ class BacktestTrade:
     net_profit: float
     r_multiple: float
     equity_after: float
+
+
+def prepare_research_policy(settings: Settings, source: Path) -> tuple[Settings, Path]:
+    """Copy an enabled candidate into an isolated replay-only approved policy."""
+    payload = json.loads(source.read_text(encoding="utf-8"))
+    enabled = [row for row in payload.get("policies", []) if row.get("enabled", False)]
+    if not enabled:
+        raise ValueError("research policy has no enabled candidate")
+    for row in enabled:
+        row["approved"] = True
+    payload["research_only_replay"] = True
+    handle = tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False)
+    try:
+        json.dump(payload, handle, indent=2, allow_nan=False)
+    finally:
+        handle.close()
+    path = Path(handle.name)
+    return (
+        replace(
+            settings,
+            decision_policy_path=path,
+            trading_enabled=False,
+            dry_run=True,
+        ),
+        path,
+    )
+
+
+def append_research_experiment(
+    source: Path,
+    summaries: list[dict[str, object]],
+    commission_per_lot_side: float,
+    slippage_points: float,
+) -> Path:
+    policy = json.loads(source.read_text(encoding="utf-8"))
+    digest = hashlib.sha256()
+    digest.update(source.read_bytes())
+    for filename in (
+        "asset_predictive_engine.py",
+        "decision_engine.py",
+        "strategy_backtest.py",
+    ):
+        digest.update((Path(__file__).resolve().parent / filename).read_bytes())
+    configuration_hash = digest.hexdigest()
+    backtested = [row for row in summaries if row.get("status") == "BACKTESTED"]
+    passed = bool(backtested) and all(
+        int(row.get("trades", 0)) >= 30
+        and float(row.get("expectancy", 0.0)) > 0
+        and float(row.get("profit_factor", 0.0)) >= 1.20
+        and float(row.get("max_closed_equity_drawdown_pct", 999.0)) <= 5.0
+        for row in backtested
+    )
+    record: dict[str, object] = {
+        "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "strategy_id": "asset_calibrated",
+        "timeframes": ["H1", "M15"],
+        "configuration_hash": configuration_hash,
+        "evidence_class": "BROKER_AWARE_POLICY_REPLAY_NOT_FORWARD_EVIDENCE",
+        "candidate_policy": [
+            row for row in policy.get("policies", []) if row.get("enabled", False)
+        ],
+        "costs": {
+            "commission_per_lot_side": commission_per_lot_side,
+            "slippage_points_per_fill": slippage_points,
+        },
+        "replay": summaries,
+        "result": "REPLAY_GATE_PASS" if passed else "REPLAY_GATE_REJECTED",
+        "routing_changed": False,
+        "forward_demo_status": "NOT_STARTED",
+    }
+    experiment_id = hashlib.sha256(
+        json.dumps(record, sort_keys=True).encode("utf-8")
+    ).hexdigest()[:16]
+    ledger = Path(__file__).resolve().parent / "research" / "strategy_experiments.jsonl"
+    ledger.parent.mkdir(parents=True, exist_ok=True)
+    with ledger.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps({"experiment_id": experiment_id, **record}) + "\n")
+    return ledger
 
 
 def _timestamp(value: int) -> str:
@@ -336,24 +416,35 @@ def main() -> None:
     )
     parser.add_argument("--slippage-points", type=float, default=10.0)
     parser.add_argument("--starting-equity", type=float)
+    parser.add_argument(
+        "--research-policy",
+        type=Path,
+        help="Replay an enabled, unapproved candidate through an isolated temporary policy.",
+    )
     args = parser.parse_args()
     settings = SETTINGS
     settings.validate()
-    execution = MT5ExecutionAgent(settings)
-    execution.connect()
-    account = execution.mt5.account_info()
-    if account is None:
-        raise RuntimeError("MT5 account unavailable")
-    starting_equity = (
-        float(args.starting_equity)
-        if args.starting_equity is not None
-        else float(account.balance)
-    )
-    if starting_equity <= 0:
-        raise ValueError("starting equity must be positive")
+    temporary_policy: Path | None = None
+    if args.research_policy is not None:
+        settings, temporary_policy = prepare_research_policy(
+            settings, args.research_policy
+        )
+    execution: MT5ExecutionAgent | None = None
     summaries: list[dict[str, object]] = []
     all_trades: list[BacktestTrade] = []
     try:
+        execution = MT5ExecutionAgent(settings)
+        execution.connect()
+        account = execution.mt5.account_info()
+        if account is None:
+            raise RuntimeError("MT5 account unavailable")
+        starting_equity = (
+            float(args.starting_equity)
+            if args.starting_equity is not None
+            else float(account.balance)
+        )
+        if starting_equity <= 0:
+            raise ValueError("starting equity must be positive")
         for symbol in settings.symbols:
             m15 = execution.bars(symbol, execution.mt5.TIMEFRAME_M15, args.bars)
             h1 = execution.bars(symbol, execution.mt5.TIMEFRAME_H1, args.bars)
@@ -364,8 +455,19 @@ def main() -> None:
             all_trades.extend(trades)
             summaries.append(summary)
     finally:
-        execution.shutdown()
+        if execution is not None:
+            execution.shutdown()
+        if temporary_policy is not None:
+            temporary_policy.unlink(missing_ok=True)
     write_report(settings, summaries, all_trades)
+    if args.research_policy is not None:
+        ledger = append_research_experiment(
+            args.research_policy,
+            summaries,
+            args.commission_per_lot_side,
+            args.slippage_points,
+        )
+        print(ledger)
     print(settings.report_dir / "strategy_backtest.html")
 
 
