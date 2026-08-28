@@ -91,22 +91,35 @@ def search(
     commission_per_lot_side: float,
     slippage_points: float,
     volume_expansion: float | None = None,
+    momentum_body_fraction: float | None = None,
 ) -> dict[str, object]:
     tested_volume_expansion = (
         settings.liquidity_volume_expansion
         if volume_expansion is None else volume_expansion
     )
+    tested_momentum_body_fraction = (
+        settings.liquidity_momentum_body_fraction
+        if momentum_body_fraction is None else momentum_body_fraction
+    )
+    if momentum_body_fraction is not None:
+        research_dimension = {
+            "name": "momentum_body_fraction",
+            "baseline": settings.liquidity_momentum_body_fraction,
+            "candidate": tested_momentum_body_fraction,
+        }
+    else:
+        research_dimension = {
+            "name": "volume_expansion",
+            "baseline": settings.liquidity_volume_expansion,
+            "candidate": tested_volume_expansion,
+        }
     histories = load_histories(execution, settings, m3_bars)
     payload: dict[str, object] = {
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "strategy_id": "liquidity_breakout",
         "timeframes": ["H4", "M15", "M3"],
         "configuration_hash": research_configuration_hash(),
-        "research_dimension": {
-            "name": "volume_expansion",
-            "baseline": settings.liquidity_volume_expansion,
-            "candidate": tested_volume_expansion,
-        },
+        "research_dimension": research_dimension,
         "evidence_class": "HISTORICAL_RESEARCH_NOT_FORWARD_EVIDENCE",
         "methodology": "50% calibration, 25% walk-forward selection, 25% untouched test revealed only for the selected stable configuration",
         "costs": {
@@ -131,6 +144,7 @@ def search(
                 "h4_zone_bars": zone_bars,
                 "h4_history_bars": history_bars,
                 "volume_expansion": tested_volume_expansion,
+                "momentum_body_fraction": tested_momentum_body_fraction,
             }
             trades, _ = run_backtest(
                 execution,
@@ -232,15 +246,25 @@ def main() -> None:
     parser.add_argument("--commission-per-lot-side", type=float, default=3.0)
     parser.add_argument("--slippage-points", type=float, default=10.0)
     parser.add_argument("--volume-expansion", type=float)
+    parser.add_argument("--momentum-body-fraction", type=float)
     args = parser.parse_args()
     if (
         args.m3_bars < 500
         or args.starting_equity <= 0
         or (args.volume_expansion is not None and args.volume_expansion <= 0)
+        or (
+            args.momentum_body_fraction is not None
+            and not 0 < args.momentum_body_fraction <= 1
+        )
+        or (
+            args.volume_expansion is not None
+            and args.momentum_body_fraction is not None
+        )
     ):
         raise ValueError(
             "m3-bars must be >= 500, starting equity must be positive, and "
-            "volume expansion must be positive"
+            "volume expansion must be positive, momentum body fraction must be "
+            "in (0, 1], and only one research override may be supplied"
         )
     settings = SETTINGS
     settings.validate()
@@ -255,6 +279,7 @@ def main() -> None:
             args.commission_per_lot_side,
             args.slippage_points,
             args.volume_expansion,
+            args.momentum_body_fraction,
         )
     finally:
         execution.shutdown()
