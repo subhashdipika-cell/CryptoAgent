@@ -10,12 +10,20 @@ from config import Settings
 from strategy_backtest import (
     Position,
     _exit_for_bar,
+    _research_side_allowed,
     _round_trip_commission,
     prepare_research_policy,
 )
 
 
 class StrategyBacktestTests(unittest.TestCase):
+    def test_research_side_filter_is_explicit_and_fail_closed(self):
+        self.assertTrue(_research_side_allowed(Side.BUY, "BUY"))
+        self.assertFalse(_research_side_allowed(Side.SELL, "BUY"))
+        self.assertTrue(_research_side_allowed(Side.SELL, "BOTH"))
+        with self.assertRaises(ValueError):
+            _research_side_allowed(Side.BUY, "LONG")
+
     def test_research_policy_is_approved_only_in_temporary_dry_run_copy(self):
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "candidate.json"

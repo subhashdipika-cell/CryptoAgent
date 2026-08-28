@@ -115,6 +115,9 @@ def append_research_experiment(
         "candidate_policy": [
             row for row in policy.get("policies", []) if row.get("enabled", False)
         ],
+        "research_constraints": {
+            "side_filter": str(policy.get("research_side_filter", "BOTH")).upper(),
+        },
         "costs": {
             "commission_per_lot_side": commission_per_lot_side,
             "slippage_points_per_fill": slippage_points,
@@ -132,6 +135,13 @@ def append_research_experiment(
     with ledger.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps({"experiment_id": experiment_id, **record}) + "\n")
     return ledger
+
+
+def _research_side_allowed(side: Side, side_filter: str) -> bool:
+    normalized = str(side_filter).upper()
+    if normalized not in {"BOTH", "BUY", "SELL"}:
+        raise ValueError(f"unsupported research side filter: {side_filter}")
+    return normalized == "BOTH" or side.value == normalized
 
 
 def _timestamp(value: int) -> str:
@@ -217,6 +227,7 @@ def backtest_symbol(
 ) -> tuple[list[BacktestTrade], dict[str, object]]:
     policy_payload = json.loads(settings.decision_policy_path.read_text(encoding="utf-8"))
     policy = next(row for row in policy_payload["policies"] if row["symbol"] == symbol)
+    research_side_filter = str(policy_payload.get("research_side_filter", "BOTH")).upper()
     if not policy["enabled"] or not policy.get("approved", False):
         return [], {"symbol": symbol, "status": "DISABLED_BY_HOLDOUT_POLICY"}
 
@@ -240,7 +251,7 @@ def backtest_symbol(
     position: Position | None = None
     pending: Position | None = None
     trades: list[BacktestTrade] = []
-    evaluated = entries_blocked_by_risk = 0
+    evaluated = entries_blocked_by_risk = entries_blocked_by_side_filter = 0
     last_h1_decision_index = -1
 
     for index in range(start_index, len(m15) - 1):
@@ -310,8 +321,10 @@ def backtest_symbol(
             h1_forecast = engine.forecast(symbol, h1_training, "1h")
             outcome = decisions.evaluate(symbol, m15_forecast, h1_forecast, 0.5, True)
             evaluated += 1
-            if outcome.side:
+            if outcome.side and _research_side_allowed(outcome.side, research_side_filter):
                 pending = Position(symbol, outcome.side, 0.0, 0, 0.0, 0.0, 0.0, atr, 0.0)
+            elif outcome.side:
+                entries_blocked_by_side_filter += 1
 
     if position is not None:
         row = m15[-1]
@@ -362,6 +375,8 @@ def backtest_symbol(
         "maximum_volume": max((trade.volume for trade in trades), default=0.0),
         "evaluated_entry_bars": evaluated,
         "entries_blocked_by_risk": entries_blocked_by_risk,
+        "entries_blocked_by_side_filter": entries_blocked_by_side_filter,
+        "research_side_filter": research_side_filter,
         "risk_cap_pct": settings.max_risk_fraction * 100.0,
         "commission_per_lot_per_side": commission_per_lot_side,
         "slippage_points_per_fill": slippage_points,
