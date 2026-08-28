@@ -3,10 +3,14 @@ import unittest
 import numpy as np
 
 from execution_agent import Side
-from strategy_backtest import Position, _exit_for_bar
+from strategy_backtest import Position, _exit_for_bar, _round_trip_commission
 
 
 class StrategyBacktestTests(unittest.TestCase):
+    def test_commission_scales_with_volume_at_observed_broker_rate(self):
+        self.assertAlmostEqual(_round_trip_commission(0.01, 3.0), 0.06)
+        self.assertAlmostEqual(_round_trip_commission(0.19, 3.0), 1.14)
+
     def test_ambiguous_bar_is_resolved_stop_first(self):
         row = np.zeros(
             (),

@@ -71,6 +71,12 @@ def _profit(mt5: Any, symbol: str, side: Side, volume: float, entry: float, exit
     return float(value)
 
 
+def _round_trip_commission(volume: float, commission_per_lot_side: float) -> float:
+    if volume < 0 or commission_per_lot_side < 0:
+        raise ValueError("volume and commission rate cannot be negative")
+    return 2.0 * commission_per_lot_side * volume
+
+
 def _plan(
     mt5: Any, settings: Settings, symbol: str, side: Side, entry: float, atr: float,
     equity: float,
@@ -126,7 +132,7 @@ def backtest_symbol(
     execution: MT5ExecutionAgent,
     settings: Settings,
     starting_equity: float,
-    commission_per_side: float,
+    commission_per_lot_side: float,
     slippage_points: float,
 ) -> tuple[list[BacktestTrade], dict[str, object]]:
     policy_payload = json.loads(settings.decision_policy_path.read_text(encoding="utf-8"))
@@ -179,7 +185,9 @@ def backtest_symbol(
                     execution.mt5, symbol, position.side, position.volume,
                     position.entry, exit_price,
                 )
-                commission = 2.0 * commission_per_side
+                commission = _round_trip_commission(
+                    position.volume, commission_per_lot_side
+                )
                 net = gross - commission
                 equity += net
                 peak = max(peak, equity)
@@ -230,7 +238,7 @@ def backtest_symbol(
         spread = float(row["spread"]) * point if "spread" in (row.dtype.names or ()) else 0.0
         exit_price = float(row["close"]) if position.side is Side.BUY else float(row["close"]) + spread
         gross = _profit(execution.mt5, symbol, position.side, position.volume, position.entry, exit_price)
-        commission = 2.0 * commission_per_side
+        commission = _round_trip_commission(position.volume, commission_per_lot_side)
         net = gross - commission
         equity += net
         trades.append(
@@ -275,7 +283,7 @@ def backtest_symbol(
         "evaluated_entry_bars": evaluated,
         "entries_blocked_by_risk": entries_blocked_by_risk,
         "risk_cap_pct": settings.max_risk_fraction * 100.0,
-        "commission_per_side": commission_per_side,
+        "commission_per_lot_per_side": commission_per_lot_side,
         "slippage_points_per_fill": slippage_points,
         "intrabar_policy": "stop first when stop and target are both touched",
     }
@@ -322,7 +330,10 @@ def write_report(settings: Settings, summaries: list[dict[str, object]], trades:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--bars", type=int, default=3000)
-    parser.add_argument("--commission-per-side", type=float, default=0.03)
+    parser.add_argument(
+        "--commission-per-lot-side", "--commission-per-side",
+        dest="commission_per_lot_side", type=float, default=3.0,
+    )
     parser.add_argument("--slippage-points", type=float, default=10.0)
     parser.add_argument("--starting-equity", type=float)
     args = parser.parse_args()
@@ -348,7 +359,7 @@ def main() -> None:
             h1 = execution.bars(symbol, execution.mt5.TIMEFRAME_H1, args.bars)
             trades, summary = backtest_symbol(
                 symbol, m15, h1, execution, settings, starting_equity,
-                args.commission_per_side, args.slippage_points,
+                args.commission_per_lot_side, args.slippage_points,
             )
             all_trades.extend(trades)
             summaries.append(summary)

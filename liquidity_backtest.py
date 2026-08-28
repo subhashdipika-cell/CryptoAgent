@@ -232,23 +232,23 @@ def run_backtest(
     starting_equity: float,
     commission_per_lot_side: float,
     slippage_points: float,
+    *,
+    histories: dict[str, dict[str, np.ndarray]] | None = None,
+    engine_parameters: dict[str, float | int] | None = None,
 ) -> tuple[list[ReplayTrade], list[dict[str, object]]]:
     mt5 = execution.mt5
-    histories: dict[str, dict[str, np.ndarray]] = {}
-    for symbol in settings.symbols:
-        histories[symbol] = {
-            "m3": _fetch_closed(mt5, symbol, mt5.TIMEFRAME_M3, m3_bars),
-            "m15": _fetch_closed(mt5, symbol, mt5.TIMEFRAME_M15, max(500, m3_bars // 5 + 120)),
-            "h4": _fetch_closed(mt5, symbol, mt5.TIMEFRAME_H4, max(200, m3_bars // 80 + 120)),
-        }
-        if len(histories[symbol]["m3"]) < 100 or len(histories[symbol]["m15"]) < 30 or len(histories[symbol]["h4"]) < 44:
-            raise RuntimeError(f"{symbol} does not have enough synchronized M3/M15/H4 history")
+    if histories is None:
+        histories = load_histories(execution, settings, m3_bars)
 
+    parameters: dict[str, float | int] = {
+        "minimum_rrr": settings.liquidity_min_rrr,
+        "minimum_touches": settings.liquidity_min_touches,
+        "volume_expansion": settings.liquidity_volume_expansion,
+        "momentum_body_fraction": settings.liquidity_momentum_body_fraction,
+    }
+    parameters.update(engine_parameters or {})
     engine = LiquidityBreakoutEngine(
-        minimum_rrr=settings.liquidity_min_rrr,
-        minimum_touches=settings.liquidity_min_touches,
-        volume_expansion=settings.liquidity_volume_expansion,
-        momentum_body_fraction=settings.liquidity_momentum_body_fraction,
+        **parameters,
     )
     event_rows: dict[int, list[tuple[str, Any, int]]] = defaultdict(list)
     for symbol, history in histories.items():
@@ -343,6 +343,32 @@ def run_backtest(
     return trades, summaries
 
 
+def load_histories(
+    execution: MT5ExecutionAgent, settings: Settings, m3_bars: int,
+) -> dict[str, dict[str, np.ndarray]]:
+    mt5 = execution.mt5
+    histories: dict[str, dict[str, np.ndarray]] = {}
+    for symbol in settings.symbols:
+        histories[symbol] = {
+            "m3": _fetch_closed(mt5, symbol, mt5.TIMEFRAME_M3, m3_bars),
+            "m15": _fetch_closed(
+                mt5, symbol, mt5.TIMEFRAME_M15, max(500, m3_bars // 5 + 120)
+            ),
+            "h4": _fetch_closed(
+                mt5, symbol, mt5.TIMEFRAME_H4, max(200, m3_bars // 80 + 120)
+            ),
+        }
+        if (
+            len(histories[symbol]["m3"]) < 100
+            or len(histories[symbol]["m15"]) < 30
+            or len(histories[symbol]["h4"]) < 44
+        ):
+            raise RuntimeError(
+                f"{symbol} does not have enough synchronized M3/M15/H4 history"
+            )
+    return histories
+
+
 def write_report(report_dir: Path, trades: list[ReplayTrade], summaries: list[dict[str, object]]) -> None:
     report_dir.mkdir(parents=True, exist_ok=True)
     payload = {
@@ -389,7 +415,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--m3-bars", type=int, default=30_000)
     parser.add_argument("--starting-equity", type=float, default=1_000.0)
-    parser.add_argument("--commission-per-lot-side", type=float, default=0.03)
+    parser.add_argument("--commission-per-lot-side", type=float, default=3.0)
     parser.add_argument("--slippage-points", type=float, default=10.0)
     args = parser.parse_args()
     if args.m3_bars < 500 or args.starting_equity <= 0:

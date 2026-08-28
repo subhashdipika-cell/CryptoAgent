@@ -327,7 +327,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--m3-bars", type=int, default=99_999)
     parser.add_argument("--starting-equity", type=float, default=1_000.0)
-    parser.add_argument("--commission-per-lot-side", type=float, default=0.03)
+    parser.add_argument("--commission-per-lot-side", type=float, default=3.0)
     parser.add_argument("--slippage-points", type=float, default=10.0)
     args = parser.parse_args()
     if args.m3_bars < 500 or args.m3_bars > 99_999 or args.starting_equity <= 0:
