@@ -12,6 +12,7 @@ from strategy_backtest import (
     Position,
     _exit_for_bar,
     _research_side_allowed,
+    _research_replay_bounds,
     _round_trip_commission,
     prepare_research_policy,
 )
@@ -19,6 +20,35 @@ import strategy_backtest
 
 
 class StrategyBacktestTests(unittest.TestCase):
+    def test_development_walk_forward_bounds_are_chronological(self):
+        start, end, classification, fold = _research_replay_bounds(
+            1000,
+            200,
+            100,
+            {"research_replay_window": {
+                "classification": "DEVELOPMENT_WALK_FORWARD",
+                "fold_id": "fold_1",
+                "start_fraction": 0.35,
+                "end_fraction": 0.5,
+            }},
+        )
+        self.assertEqual((start, end), (350, 500))
+        self.assertEqual(classification, "DEVELOPMENT_WALK_FORWARD")
+        self.assertEqual(fold, "fold_1")
+
+    def test_replay_bounds_reject_untouched_claims(self):
+        with self.assertRaises(ValueError):
+            _research_replay_bounds(
+                1000,
+                200,
+                100,
+                {"research_replay_window": {
+                    "classification": "UNTOUCHED_TEST",
+                    "start_fraction": 0.8,
+                    "end_fraction": 1.0,
+                }},
+            )
+
     def test_replay_metric_pass_cannot_claim_promotion_or_untouched_evidence(self):
         source = inspect.getsource(strategy_backtest.append_research_experiment)
         self.assertIn("BASIC_REPLAY_METRICS_PASS_UNTOUCHED_NOT_PROVEN", source)

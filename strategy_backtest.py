@@ -155,7 +155,10 @@ def append_research_experiment(
         "validation_windows": [
             {
                 "symbol": row.get("symbol"),
-                "classification": "PREVIOUSLY_OBSERVED_POLICY_REPLAY",
+                "classification": row.get(
+                    "replay_window_classification", "PREVIOUSLY_OBSERVED_POLICY_REPLAY"
+                ),
+                "fold_id": row.get("replay_fold"),
                 "period_start_utc": row.get("period_start_utc"),
                 "period_end_utc": row.get("period_end_utc"),
                 "trades": row.get("trades", 0),
@@ -180,6 +183,31 @@ def _research_side_allowed(side: Side, side_filter: str) -> bool:
     if normalized not in {"BOTH", "BUY", "SELL"}:
         raise ValueError(f"unsupported research side filter: {side_filter}")
     return normalized == "BOTH" or side.value == normalized
+
+
+def _research_replay_bounds(
+    length: int,
+    default_start: int,
+    minimum_history_start: int,
+    policy_payload: dict[str, object],
+) -> tuple[int, int, str, str | None]:
+    window = policy_payload.get("research_replay_window")
+    if window is None:
+        return default_start, length, "PREVIOUSLY_OBSERVED_POLICY_REPLAY", None
+    if not isinstance(window, dict):
+        raise ValueError("research replay window must be an object")
+    classification = str(window.get("classification", ""))
+    if classification != "DEVELOPMENT_WALK_FORWARD":
+        raise ValueError("research replay window cannot claim untouched classification")
+    start_fraction = float(window.get("start_fraction", -1))
+    end_fraction = float(window.get("end_fraction", -1))
+    if not 0 <= start_fraction < end_fraction <= 1:
+        raise ValueError("research replay fractions must satisfy 0 <= start < end <= 1")
+    start = max(minimum_history_start, int(length * start_fraction))
+    end = min(length, int(length * end_fraction))
+    if end - start < 3:
+        raise ValueError("research replay window is too short after history requirements")
+    return start, end, classification, str(window.get("fold_id", "UNSPECIFIED"))
 
 
 def _timestamp(value: int) -> str:
@@ -278,7 +306,11 @@ def backtest_symbol(
     cutoff = validation_folds[max(1, int(len(validation_folds) * 0.65))].origin_time
     start_index = int(np.searchsorted(m15["time"], cutoff, side="left"))
     spec = ASSET_SPECS[asset_key(symbol)]
-    start_index = max(start_index, spec.context + spec.minimum_samples + settings.prediction_length)
+    minimum_history_start = spec.context + spec.minimum_samples + settings.prediction_length
+    start_index = max(start_index, minimum_history_start)
+    start_index, evaluation_end_index, replay_classification, replay_fold = _research_replay_bounds(
+        len(m15), start_index, minimum_history_start, policy_payload
+    )
     engine = DedicatedAssetForecastEngine(settings)
     decisions = CalibratedDecisionEngine(settings.decision_policy_path)
     info = execution.mt5.symbol_info(symbol)
@@ -292,7 +324,7 @@ def backtest_symbol(
     evaluated = entries_blocked_by_risk = entries_blocked_by_side_filter = 0
     last_h1_decision_index = -1
 
-    for index in range(start_index, len(m15) - 1):
+    for index in range(start_index, evaluation_end_index - 1):
         row = m15[index]
         if pending is not None:
             spread = float(row["spread"]) * point if "spread" in (row.dtype.names or ()) else 0.0
@@ -365,7 +397,7 @@ def backtest_symbol(
                 entries_blocked_by_side_filter += 1
 
     if position is not None:
-        row = m15[-1]
+        row = m15[evaluation_end_index - 1]
         spread = float(row["spread"]) * point if "spread" in (row.dtype.names or ()) else 0.0
         exit_price = float(row["close"]) if position.side is Side.BUY else float(row["close"]) + spread
         gross = _profit(execution.mt5, symbol, position.side, position.volume, position.entry, exit_price)
@@ -393,7 +425,9 @@ def backtest_symbol(
         "symbol": symbol,
         "status": "BACKTESTED",
         "period_start_utc": _timestamp(int(m15[start_index]["time"])),
-        "period_end_utc": _timestamp(int(m15[-1]["time"])),
+        "period_end_utc": _timestamp(int(m15[evaluation_end_index - 1]["time"])),
+        "replay_window_classification": replay_classification,
+        "replay_fold": replay_fold,
         "starting_equity": starting_equity,
         "ending_equity": equity,
         "net_profit": equity - starting_equity,
