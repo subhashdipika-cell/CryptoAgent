@@ -10,6 +10,7 @@ from execution_agent import Side
 from config import Settings
 from strategy_backtest import (
     Position,
+    _bars_completed_by_observation,
     _exit_for_bar,
     _research_side_allowed,
     _research_replay_bounds,
@@ -21,6 +22,22 @@ import strategy_backtest
 
 
 class StrategyBacktestTests(unittest.TestCase):
+    def test_replay_excludes_bars_not_completed_by_observation_time(self):
+        rates = np.zeros(3, dtype=[("time", "i8"), ("close", "f8")])
+        rates["time"] = [900, 1500, 2100]
+        observed_at = strategy_backtest.datetime.fromtimestamp(
+            2400, tz=strategy_backtest.timezone.utc
+        )
+        completed = _bars_completed_by_observation(rates, 15, observed_at)
+        self.assertEqual(completed["time"].tolist(), [900, 1500])
+
+    def test_replay_observation_time_must_be_timezone_aware(self):
+        rates = np.zeros(1, dtype=[("time", "i8")])
+        with self.assertRaises(ValueError):
+            _bars_completed_by_observation(
+                rates, 15, strategy_backtest.datetime.fromtimestamp(2400)
+            )
+
     def test_h1_trend_filter_uses_completed_history_direction(self):
         rising = np.arange(1.0, 61.0)
         falling = rising[::-1]

@@ -230,6 +230,23 @@ def _timestamp(value: int) -> str:
     return datetime.fromtimestamp(value, tz=timezone.utc).isoformat()
 
 
+def _bars_completed_by_observation(
+    rates: Any,
+    timeframe_minutes: int,
+    observed_at: datetime,
+) -> Any:
+    if observed_at.tzinfo is None or observed_at.utcoffset() is None:
+        raise ValueError("historical observation time must be timezone-aware")
+    if timeframe_minutes <= 0:
+        raise ValueError("timeframe minutes must be positive")
+    cutoff = int(observed_at.astimezone(timezone.utc).timestamp())
+    closes_at = rates["time"].astype(np.int64) + timeframe_minutes * 60
+    completed = rates[closes_at <= cutoff]
+    if len(completed) == 0:
+        raise RuntimeError("no bars were completed by the historical observation time")
+    return completed
+
+
 def _round_volume(value: float, minimum: float, maximum: float, step: float) -> float:
     steps = math.floor((min(value, maximum) - minimum + 1e-12) / step)
     return round(minimum + max(0, steps) * step, 8) if value >= minimum else 0.0
@@ -558,9 +575,12 @@ def main() -> None:
         )
         if starting_equity <= 0:
             raise ValueError("starting equity must be positive")
+        observed_at = datetime.now(timezone.utc)
         for symbol in settings.symbols:
             m15 = execution.bars(symbol, execution.mt5.TIMEFRAME_M15, args.bars)
             h1 = execution.bars(symbol, execution.mt5.TIMEFRAME_H1, args.bars)
+            m15 = _bars_completed_by_observation(m15, 15, observed_at)
+            h1 = _bars_completed_by_observation(h1, 60, observed_at)
             trades, summary = backtest_symbol(
                 symbol, m15, h1, execution, settings, starting_equity,
                 args.commission_per_lot_side, args.slippage_points,
