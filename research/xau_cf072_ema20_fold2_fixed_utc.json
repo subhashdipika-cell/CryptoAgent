@@ -1,0 +1,43 @@
+{
+  "methodology": "fixed UTC development walk-forward fold 2; final 10 percent remains untouched",
+  "research_side_filter": "BOTH",
+  "research_take_profit_atr_multiple": 2.0,
+  "research_max_risk_fraction": 0.01,
+  "research_h1_trend_ema_period": 20,
+  "research_replay_window": {
+    "classification": "DEVELOPMENT_WALK_FORWARD",
+    "start_utc": "2026-06-15T12:00:00+00:00",
+    "end_utc": "2026-07-15T13:00:00+00:00",
+    "fold_id": "cf072_ema20_fold_2_fixed_utc"
+  },
+  "policies": [
+    {
+      "symbol": "BTCUSD",
+      "model_name": "BTC-DirectRidge",
+      "decision_mode": "H1_ONLY",
+      "enabled": false,
+      "approved": false,
+      "confidence_threshold": 0.70,
+      "m15_edge_bps": 0.0,
+      "h1_edge_bps": 10.0,
+      "calibration_trades": 74,
+      "holdout_trades": 26,
+      "holdout_net_bps": -395.1373154483524,
+      "holdout_profit_factor": 0.6138760555527175
+    },
+    {
+      "symbol": "XAUUSD+",
+      "model_name": "XAU-DirectRidge",
+      "decision_mode": "M15_H1",
+      "enabled": true,
+      "approved": false,
+      "confidence_threshold": 0.72,
+      "m15_edge_bps": 3.0,
+      "h1_edge_bps": 3.0,
+      "calibration_trades": 0,
+      "holdout_trades": 0,
+      "holdout_net_bps": 0.0,
+      "holdout_profit_factor": 0.0
+    }
+  ]
+}
