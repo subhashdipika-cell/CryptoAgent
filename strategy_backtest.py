@@ -191,6 +191,7 @@ def _research_replay_bounds(
     default_start: int,
     minimum_history_start: int,
     policy_payload: dict[str, object],
+    timestamps: Any | None = None,
 ) -> tuple[int, int, str, str | None]:
     window = policy_payload.get("research_replay_window")
     if window is None:
@@ -200,6 +201,37 @@ def _research_replay_bounds(
     classification = str(window.get("classification", ""))
     if classification != "DEVELOPMENT_WALK_FORWARD":
         raise ValueError("research replay window cannot claim untouched classification")
+    start_utc = window.get("start_utc")
+    end_utc = window.get("end_utc")
+    if start_utc is not None or end_utc is not None:
+        if start_utc is None or end_utc is None:
+            raise ValueError("fixed research replay window requires start_utc and end_utc")
+        if "start_fraction" in window or "end_fraction" in window:
+            raise ValueError("research replay window cannot mix UTC bounds and fractions")
+        if timestamps is None:
+            raise ValueError("fixed research replay window requires bar timestamps")
+
+        def parse_utc(value: object) -> int:
+            parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+            if parsed.tzinfo is None or parsed.utcoffset() is None:
+                raise ValueError("research replay UTC bounds must be timezone-aware")
+            return int(parsed.astimezone(timezone.utc).timestamp())
+
+        start_timestamp = parse_utc(start_utc)
+        end_timestamp = parse_utc(end_utc)
+        if start_timestamp >= end_timestamp:
+            raise ValueError("research replay UTC bounds must satisfy start < end")
+        values = np.asarray(timestamps, dtype=np.int64)
+        if len(values) != length:
+            raise ValueError("research replay timestamps must match bar length")
+        start = max(
+            minimum_history_start,
+            int(np.searchsorted(values, start_timestamp, side="left")),
+        )
+        end = min(length, int(np.searchsorted(values, end_timestamp, side="left")))
+        if end - start < 3:
+            raise ValueError("fixed research replay window is too short after history requirements")
+        return start, end, classification, str(window.get("fold_id", "UNSPECIFIED"))
     start_fraction = float(window.get("start_fraction", -1))
     end_fraction = float(window.get("end_fraction", -1))
     if not 0 <= start_fraction < end_fraction <= 1:
@@ -343,7 +375,7 @@ def backtest_symbol(
     minimum_history_start = spec.context + spec.minimum_samples + settings.prediction_length
     start_index = max(start_index, minimum_history_start)
     start_index, evaluation_end_index, replay_classification, replay_fold = _research_replay_bounds(
-        len(m15), start_index, minimum_history_start, policy_payload
+        len(m15), start_index, minimum_history_start, policy_payload, m15["time"]
     )
     engine = DedicatedAssetForecastEngine(settings)
     decisions = CalibratedDecisionEngine(settings.decision_policy_path)

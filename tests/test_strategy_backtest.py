@@ -1,6 +1,7 @@
 import unittest
 import json
 import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
@@ -74,6 +75,43 @@ class StrategyBacktestTests(unittest.TestCase):
                     "start_fraction": 0.8,
                     "end_fraction": 1.0,
                 }},
+            )
+
+    def test_fixed_development_bounds_use_utc_bar_times(self):
+        timestamps = np.arange(1_700_000_000, 1_700_003_600, 60, dtype=np.int64)
+        start, end, classification, fold = _research_replay_bounds(
+            len(timestamps),
+            10,
+            5,
+            {"research_replay_window": {
+                "classification": "DEVELOPMENT_WALK_FORWARD",
+                "fold_id": "fixed_1",
+                "start_utc": datetime.fromtimestamp(
+                    int(timestamps[20]), tz=timezone.utc
+                ).isoformat(),
+                "end_utc": datetime.fromtimestamp(
+                    int(timestamps[40]), tz=timezone.utc
+                ).isoformat(),
+            }},
+            timestamps,
+        )
+        self.assertEqual((start, end), (20, 40))
+        self.assertEqual(classification, "DEVELOPMENT_WALK_FORWARD")
+        self.assertEqual(fold, "fixed_1")
+
+    def test_fixed_bounds_reject_fraction_mix(self):
+        with self.assertRaises(ValueError):
+            _research_replay_bounds(
+                100,
+                10,
+                5,
+                {"research_replay_window": {
+                    "classification": "DEVELOPMENT_WALK_FORWARD",
+                    "start_utc": "2026-01-01T00:00:00+00:00",
+                    "end_utc": "2026-01-02T00:00:00+00:00",
+                    "start_fraction": 0.5,
+                }},
+                np.arange(100, dtype=np.int64),
             )
 
     def test_replay_metric_pass_cannot_claim_promotion_or_untouched_evidence(self):

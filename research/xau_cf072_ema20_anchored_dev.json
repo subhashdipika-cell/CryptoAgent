@@ -6,9 +6,9 @@
   "research_h1_trend_ema_period": 20,
   "research_replay_window": {
     "classification": "DEVELOPMENT_WALK_FORWARD",
-    "start_fraction": 0.50,
-    "end_fraction": 0.90,
-    "fold_id": "cf072_ema20_anchored_050_090"
+    "start_utc": "2026-06-15T12:00:00+00:00",
+    "end_utc": "2026-08-14T06:30:00+00:00",
+    "fold_id": "cf072_ema20_anchored_fixed_utc"
   },
   "policies": [
     {
