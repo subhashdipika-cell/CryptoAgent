@@ -370,6 +370,31 @@ def load_histories(
     return histories
 
 
+def restrict_m3_replay_window(
+    histories: dict[str, dict[str, np.ndarray]],
+    start_utc: datetime,
+    end_utc: datetime,
+) -> dict[str, dict[str, np.ndarray]]:
+    """Restrict replay events while retaining higher-timeframe pre-roll context."""
+    if start_utc.tzinfo is None or end_utc.tzinfo is None:
+        raise ValueError("Replay window timestamps must be timezone-aware")
+    start_epoch = int(start_utc.timestamp())
+    end_epoch = int(end_utc.timestamp())
+    if end_epoch <= start_epoch:
+        raise ValueError("Replay window end must be after its start")
+
+    restricted: dict[str, dict[str, np.ndarray]] = {}
+    for symbol, history in histories.items():
+        m3 = history["m3"]
+        selected = m3[(m3["time"] >= start_epoch) & (m3["time"] < end_epoch)]
+        if len(selected) < 100:
+            raise RuntimeError(
+                f"{symbol} has only {len(selected)} M3 bars in the fixed replay window"
+            )
+        restricted[symbol] = {**history, "m3": selected}
+    return restricted
+
+
 def write_report(report_dir: Path, trades: list[ReplayTrade], summaries: list[dict[str, object]]) -> None:
     report_dir.mkdir(parents=True, exist_ok=True)
     payload = {
@@ -420,6 +445,8 @@ def append_experiment(
     commission_per_lot_side: float,
     slippage_points: float,
     summaries: list[dict[str, object]],
+    replay_start_utc: str | None = None,
+    replay_end_utc: str | None = None,
 ) -> Path:
     generated_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     configuration = {
@@ -435,6 +462,8 @@ def append_experiment(
         "starting_equity": starting_equity,
         "commission_per_lot_side": commission_per_lot_side,
         "slippage_points_per_fill": slippage_points,
+        "replay_start_utc": replay_start_utc,
+        "replay_end_utc": replay_end_utc,
     }
     configuration_hash = hashlib.sha256(
         json.dumps(configuration, sort_keys=True, separators=(",", ":")).encode("utf-8")
@@ -473,17 +502,32 @@ def main() -> None:
     parser.add_argument("--starting-equity", type=float, default=1_000.0)
     parser.add_argument("--commission-per-lot-side", type=float, default=3.0)
     parser.add_argument("--slippage-points", type=float, default=10.0)
+    parser.add_argument("--start-utc")
+    parser.add_argument("--end-utc")
     args = parser.parse_args()
     if args.m3_bars < 500 or args.starting_equity <= 0:
         raise ValueError("m3-bars must be >= 500 and starting equity must be positive")
     settings = SETTINGS
     settings.validate()
+    if bool(args.start_utc) != bool(args.end_utc):
+        raise ValueError("start-utc and end-utc must be provided together")
+    replay_start = datetime.fromisoformat(args.start_utc) if args.start_utc else None
+    replay_end = datetime.fromisoformat(args.end_utc) if args.end_utc else None
+    if replay_start is not None:
+        if replay_start.tzinfo is None or replay_end is None or replay_end.tzinfo is None:
+            raise ValueError("start-utc and end-utc must include UTC offsets")
+        replay_start = replay_start.astimezone(timezone.utc)
+        replay_end = replay_end.astimezone(timezone.utc)
     execution = MT5ExecutionAgent(settings)
     execution.connect()
     try:
+        histories = load_histories(execution, settings, args.m3_bars)
+        if replay_start is not None and replay_end is not None:
+            histories = restrict_m3_replay_window(histories, replay_start, replay_end)
         trades, summaries = run_backtest(
             execution, settings, args.m3_bars, args.starting_equity,
             args.commission_per_lot_side, args.slippage_points,
+            histories=histories,
         )
     finally:
         execution.shutdown()
@@ -496,6 +540,8 @@ def main() -> None:
         args.commission_per_lot_side,
         args.slippage_points,
         summaries,
+        replay_start.isoformat() if replay_start is not None else None,
+        replay_end.isoformat() if replay_end is not None else None,
     )
     print(json.dumps(summaries, indent=2, allow_nan=False))
     print(ledger)

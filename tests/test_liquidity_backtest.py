@@ -1,13 +1,20 @@
 import json
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
 
 from execution_agent import Side
 from config import Settings
-from liquidity_backtest import ReplayPosition, _closed_slice, _position_event, append_experiment
+from liquidity_backtest import (
+    ReplayPosition,
+    _closed_slice,
+    _position_event,
+    append_experiment,
+    restrict_m3_replay_window,
+)
 
 
 def bar(open_price, high, low, close, spread=0):
@@ -25,6 +32,20 @@ def bar(open_price, high, low, close, spread=0):
 
 
 class LiquidityBacktestTests(unittest.TestCase):
+    def test_fixed_replay_window_filters_only_m3_events(self):
+        rates = np.zeros(120, dtype=[("time", "i8")])
+        rates["time"] = np.arange(120) * 180
+        context = np.zeros(4, dtype=[("time", "i8")])
+        histories = {"BTCUSD": {"m3": rates, "m15": context, "h4": context}}
+        restricted = restrict_m3_replay_window(
+            histories,
+            datetime.fromtimestamp(10 * 180, timezone.utc),
+            datetime.fromtimestamp(115 * 180, timezone.utc),
+        )
+        self.assertEqual(len(restricted["BTCUSD"]["m3"]), 105)
+        self.assertIs(restricted["BTCUSD"]["m15"], context)
+        self.assertIs(restricted["BTCUSD"]["h4"], context)
+
     def test_experiment_ledger_is_research_only_and_fail_closed(self):
         with tempfile.TemporaryDirectory() as directory:
             ledger = Path(directory) / "liquidity_experiments.jsonl"
