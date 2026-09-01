@@ -53,7 +53,7 @@ class Settings:
     symbols: tuple[str, ...] = field(
         default_factory=lambda: (
             os.getenv("MT5_BTC_SYMBOL", "BTCUSD"),
-            os.getenv("MT5_XAU_SYMBOL", "XAUUSD"),
+            os.getenv("MT5_XAU_SYMBOL", "XAUUSD+"),
         )
     )
     bar_count: int = 500

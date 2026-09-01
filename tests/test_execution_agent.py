@@ -123,6 +123,13 @@ class ExecutionTests(unittest.TestCase):
         with patch.dict(os.environ, {"MT5_BTC_SYMBOL": "BTCUSD", "MT5_XAU_SYMBOL": "XAUUSD+"}):
             self.assertEqual(Settings().symbols, ("BTCUSD", "XAUUSD+"))
 
+    def test_default_gold_symbol_matches_demo_broker(self):
+        import os
+        from unittest.mock import patch
+
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(Settings().symbols, ("BTCUSD", "XAUUSD+"))
+
     def test_order_plan_has_hard_stops_and_capped_risk(self):
         settings = Settings(dry_run=True, trading_enabled=False)
         plan = MT5ExecutionAgent(settings, FakeMT5()).build_order("BTCUSD", Side.BUY, atr=2.0)
