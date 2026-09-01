@@ -1,2 +1,0 @@
-{"experiment_id":"dac5d6bc40e88a10","invalidated_at":"2026-08-31T04:00:00+00:00","reason":"Fraction-based rolling replay window shifted by one completed M15 bar; cost-stress comparison was not attributable to slippage alone.","routing_changed":false}
-{"experiment_id":"173c5c0db0a7fec1","invalidated_at":"2026-08-31T04:00:00+00:00","reason":"Fraction-based rolling replay window shifted by one completed M15 bar; cost-stress comparison was not attributable to slippage alone.","routing_changed":false}

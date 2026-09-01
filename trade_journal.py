@@ -170,29 +170,6 @@ CREATE TABLE IF NOT EXISTS mt5_deals (
     synced_at TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS liquidity_signals (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    recorded_at TEXT NOT NULL,
-    account_login INTEGER NOT NULL,
-    server TEXT NOT NULL,
-    asset TEXT NOT NULL,
-    strategy TEXT NOT NULL,
-    macro_bias_4h TEXT NOT NULL,
-    retail_bait_level REAL,
-    whale_target_level_4h REAL,
-    entry_price_3m REAL,
-    stop_loss_15m REAL,
-    take_profit_4h REAL,
-    calculated_rrr REAL NOT NULL,
-    risk_amount_usd REAL NOT NULL,
-    projected_profit_usd REAL NOT NULL,
-    trade_status TEXT NOT NULL,
-    notes TEXT NOT NULL,
-    trigger_bar_time INTEGER
-);
-
-CREATE INDEX IF NOT EXISTS idx_liquidity_asset_time
-ON liquidity_signals(asset, recorded_at);
 CREATE INDEX IF NOT EXISTS idx_signals_symbol_time ON signals(symbol, recorded_at);
 CREATE INDEX IF NOT EXISTS idx_forecasts_symbol_time ON model_forecasts(symbol, recorded_at);
 CREATE INDEX IF NOT EXISTS idx_deals_position ON mt5_deals(position_id, time_msc);
@@ -333,46 +310,6 @@ class TradeJournal:
                     active_model,
                 ),
             )
-
-    def record_liquidity_signal(
-        self,
-        account: Any,
-        strategy: str,
-        decision: Any,
-        *,
-        risk_amount_usd: float = 0.0,
-        projected_profit_usd: float = 0.0,
-        trade_status: str | None = None,
-    ) -> None:
-        with self._lock, self._connect() as connection:
-            connection.execute(
-                """INSERT INTO liquidity_signals
-                (recorded_at, account_login, server, asset, strategy, macro_bias_4h,
-                 retail_bait_level, whale_target_level_4h, entry_price_3m,
-                 stop_loss_15m, take_profit_4h, calculated_rrr, risk_amount_usd,
-                 projected_profit_usd, trade_status, notes, trigger_bar_time)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    utc_now(),
-                    int(account.login),
-                    str(account.server),
-                    decision.asset,
-                    strategy,
-                    decision.macro_bias_4h,
-                    decision.retail_bait_level,
-                    decision.whale_target_level_4h,
-                    decision.entry_price_3m,
-                    decision.stop_loss_15m,
-                    decision.take_profit_4h,
-                    float(decision.calculated_rrr),
-                    float(risk_amount_usd),
-                    float(projected_profit_usd),
-                    trade_status or decision.trade_status,
-                    decision.notes,
-                    decision.trigger_bar_time,
-                ),
-            )
-
 
     def record_submission(
         self,
@@ -565,7 +502,6 @@ class TradeJournal:
         allowed = {
             "account_snapshots", "signals", "model_forecasts", "submissions",
             "order_plan_rejections", "mt5_orders", "mt5_deals",
-            "liquidity_signals",
         }
         if table not in allowed:
             raise ValueError(f"unsupported journal table: {table}")

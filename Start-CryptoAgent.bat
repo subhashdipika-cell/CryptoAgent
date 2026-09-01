@@ -66,7 +66,7 @@ set "CRYPTO_AGENT_EXIT=%ERRORLEVEL%"
 if not "%CRYPTO_AGENT_EXIT%"=="0" (
     echo.
     echo CryptoAgent stopped with exit code %CRYPTO_AGENT_EXIT%.
-    if /I not "%TRADING_LAB_HIDDEN%"=="1" pause
+    pause
 )
 
 endlocal & exit /b %CRYPTO_AGENT_EXIT%

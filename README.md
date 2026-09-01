@@ -63,15 +63,11 @@ This workstation's verified Vantage DEMO terminal uses `BTCUSD` and the broker-s
 .\Start-CryptoAgent.bat
 ```
 
-`Start-CryptoAgent.bat` requests order routing to the verified DEMO terminal, but
-startup also requires the selected strategy to be `DEMO_READY` in
-`policies/strategy_readiness.json`. Missing, rejected, revoked, research-only, or
-configuration-stale readiness evidence fails closed before forecast or execution
-engines initialize. Readiness and its successful DEMO reconciliation proof expire
-after 15 minutes by default. The launcher also forces `REQUIRE_DEMO_ACCOUNT=true`; the
-runtime refuses any non-DEMO account and retains the 2% equity risk cap, initial
-SL/TP requirement, and ATR trailing controls. Validate its local terminal,
-environment, model, symbol, and readiness configuration without starting the loop:
+Double-click `Start-CryptoAgent.bat` to enable order routing to the verified DEMO
+terminal. The launcher forces `REQUIRE_DEMO_ACCOUNT=true`, and the runtime refuses
+to connect if the selected account is not DEMO. It retains the 2% equity risk cap,
+initial SL/TP requirement, and ATR trailing controls. Validate its local terminal,
+environment, model, and symbol configuration without starting the loop:
 
 ```powershell
 .\Start-CryptoAgent.bat --check
@@ -199,44 +195,6 @@ separate forward sample is large enough to assess.
 
 `autogen_orchestration.py` defines an optional Microsoft AutoGen round-robin implementer/reviewer team using `Qwen2.5-Coder-7B-Instruct` through a local OpenAI-compatible endpoint. It is deliberately outside the trading runtime and has no MT5 tools. Set `QWEN_BASE_URL`, start the local Qwen server, and call `review_task()` from a maintenance script when code review is wanted.
 
-## Institutional liquidity breakout strategy (opt-in DEMO)
-
-The existing `Start-CryptoAgent.bat` calibrated route is unchanged. To select the
-new strategy explicitly, run the non-live launcher check first:
-
-```powershell
-.\Start-CryptoAgent-Liquidity-Demo.bat --check
-```
-
-Then double-click `Start-CryptoAgent-Liquidity-Demo.bat` to permit orders only on
-the configured MT5 DEMO account. The strategy uses completed candles exclusively:
-
-1. H4: requires at least three repeated touches of a recent range boundary and
-   locates the nearest older swing beyond that boundary as the liquidity target.
-2. M15: uses the preceding structure boundary for breakout confirmation and the
-   nearest eight-bar structural extreme for the fixed stop.
-3. M3: requires a directional breakout candle with at least 60% body/range and
-   tick volume at least 1.2 times the prior 20-bar average.
-4. Broker-price planning rechecks that reward/risk is at least 1:2.5 before sizing.
-
-No retail-positioning feed is available, so retail bait is a deterministic
-repeated-touch price-structure proxy, not a claim about measured crowd positions.
-The 25% of up-to-$1,000 daily target is an anti-greed stop ceiling, not an expected
-or guaranteed return. Per-trade loss remains capped at 2% of account equity, broker
-minimum-stop and margin limits remain enforced, and every order has a fixed SL/TP.
-
-The Asia/Kolkata daily gate counts only `LiquidityBreakout` position IDs for Expert
-ID `26081301`, includes commission, swap, and fees in realized P/L, permits at most
-three entries, and stops new entries once the daily target is realized. Only
-positions carrying `CryptoAgent|LiquidityBreakout` are moved to breakeven at 2R;
-minor pullbacks do not cause discretionary closes.
-
-Each evaluation is logged as `LIQUIDITY_EVALUATION` JSON and persisted to
-`liquidity_signals`, including the H4 bias/target, bait level, M3 entry, M15 stop,
-RRR, risk, projected reward, status, and notes. This is a new unvalidated strategy:
-keep it on DEMO until deterministic replay and reconciled forward evidence support
-any later promotion decision.
-
 ## Trade journal and performance report
 
 CryptoAgent continuously writes an ignored local SQLite journal to
@@ -274,29 +232,6 @@ per asset before leaving `INSUFFICIENT_FORWARD_EVIDENCE`. The threshold indicate
 sample availability, not profitability or promotion eligibility. Reporting is
 read-only and never changes policy, eligibility, sizing, or order routing.
 
-## Strategy readiness dashboard and deployment gate
-
-Refresh reconciled DEMO evidence first, then generate the auditable readiness
-registry and dashboard:
-
-```powershell
-$env:TRADING_ENABLED = "false"
-$env:DRY_RUN = "true"
-.\.venv\Scripts\python.exe performance_report.py --sync
-.\.venv\Scripts\python.exe strategy_readiness.py generate
-```
-
-Open `reports/strategy_readiness.html` for the human-readable dashboard. The
-tracked `policies/strategy_readiness.json` is the runtime control record. A
-strategy becomes `DEMO_READY` only when its own reconciled forward DEMO evidence
-has at least 30 closed trades over 10 sessions, positive net expectancy after
-costs, profit factor of at least 1.20, maximum drawdown no greater than 5%, and an
-enabled, approved policy. Backtests and replay remain separately labelled and
-cannot make a strategy deployable. Any strategy or policy-code change invalidates
-the stored configuration hash and blocks routing until evidence is regenerated.
-This gate authorizes DEMO routing only and never authorizes LIVE trading or
-guarantees future profit.
-
 ## Module map
 
 - `config.py`: offline flags, credentials, account/risk gates, paths.
@@ -305,7 +240,6 @@ guarantees future profit.
 - `foundation_backends.py`: offline IBM TTM-R3 and Google TimesFM 2.5 adapters.
 - `predictive_validation.py`: completed-bar walk-forward validation and reports.
 - `strategy_backtest.py`: broker-aware calibrated-policy execution replay.
-- `strategy_readiness.py`: readiness registry, HTML dashboard, and fail-closed DEMO deployment gate.
 - `paper_risk_report.py`: read-only XAUUSD 0.01-lot minimum-equity and ATR report.
 - `sentiment_engine.py`: pooled async RSS/API collection and FinBERT fallback.
 - `execution_agent.py`: MT5 state, sizing, initial SL/TP order payload, trailing stops.

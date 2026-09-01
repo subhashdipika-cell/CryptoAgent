@@ -50,35 +50,6 @@ def approve(symbol: str, settings: Settings = SETTINGS) -> dict:
     return promoted
 
 
-def revoke(symbol: str, reason: str, settings: Settings = SETTINGS) -> dict:
-    reason = reason.strip()
-    if not reason:
-        raise ValueError("a non-empty revocation reason is required")
-    active_payload = _load(settings.decision_policy_path)
-    policies = active_payload.get("policies", [])
-    active = next((row for row in policies if row["symbol"] == symbol), None)
-    if active is None:
-        raise ValueError(f"no active policy exists for {symbol}")
-    if not active.get("enabled", False) and not active.get("approved", False):
-        return active
-    rejected_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    revoked = {**active, "enabled": False, "approved": False}
-    active_payload["policies"] = [
-        revoked if row["symbol"] == symbol else row for row in policies
-    ]
-    active_payload.setdefault("approval_audit", []).append(
-        {
-            "symbol": symbol,
-            "action": "FORWARD_EVIDENCE_REJECTION",
-            "rejected_at": rejected_at,
-            "reason": reason,
-            "candidate_policy": revoked,
-        }
-    )
-    _write_atomic(settings.decision_policy_path, active_payload)
-    return revoked
-
-
 def status(settings: Settings = SETTINGS) -> dict:
     active = _load(settings.decision_policy_path)
     candidate = (
@@ -94,16 +65,10 @@ def main() -> None:
     subparsers.add_parser("status")
     approval = subparsers.add_parser("approve")
     approval.add_argument("symbol")
-    revocation = subparsers.add_parser("revoke")
-    revocation.add_argument("symbol")
-    revocation.add_argument("reason")
     args = parser.parse_args()
     if args.command == "approve":
         print(json.dumps(approve(args.symbol), indent=2))
         print("Restart CryptoAgent to load the manually approved policy.")
-    elif args.command == "revoke":
-        print(json.dumps(revoke(args.symbol, args.reason), indent=2))
-        print("Restart CryptoAgent to load the revoked policy.")
     else:
         print(json.dumps(status(), indent=2))
 

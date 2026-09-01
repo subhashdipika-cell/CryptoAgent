@@ -1,5 +1,4 @@
 import unittest
-from datetime import datetime, timezone
 from types import SimpleNamespace
 
 from config import Settings
@@ -55,25 +54,6 @@ class FakeSubmitMT5(FakeMT5):
         self.request = request
         return SimpleNamespace(retcode=self.TRADE_RETCODE_DONE, comment="Request executed")
 
-class FakeLiquidityMT5(FakeSubmitMT5):
-    TRADE_ACTION_SLTP = 2
-    POSITION_TYPE_BUY = 0
-
-    def __init__(self):
-        super().__init__()
-        self.deals = []
-        self.positions = []
-
-    def history_deals_get(self, _start, _end):
-        return self.deals
-
-    def positions_get(self):
-        return self.positions
-
-    def symbol_info_tick(self, _symbol):
-        return SimpleNamespace(ask=104.02, bid=104.0)
-
-
 
 class ExecutionTests(unittest.TestCase):
     def test_submitted_order_identifies_cryptoagent(self):
@@ -123,13 +103,6 @@ class ExecutionTests(unittest.TestCase):
         with patch.dict(os.environ, {"MT5_BTC_SYMBOL": "BTCUSD", "MT5_XAU_SYMBOL": "XAUUSD+"}):
             self.assertEqual(Settings().symbols, ("BTCUSD", "XAUUSD+"))
 
-    def test_default_gold_symbol_matches_demo_broker(self):
-        import os
-        from unittest.mock import patch
-
-        with patch.dict(os.environ, {}, clear=True):
-            self.assertEqual(Settings().symbols, ("BTCUSD", "XAUUSD+"))
-
     def test_order_plan_has_hard_stops_and_capped_risk(self):
         settings = Settings(dry_run=True, trading_enabled=False)
         plan = MT5ExecutionAgent(settings, FakeMT5()).build_order("BTCUSD", Side.BUY, atr=2.0)
@@ -153,128 +126,6 @@ class ExecutionTests(unittest.TestCase):
         self.assertAlmostEqual(report.maximum_stop_distance, 100.0)
         self.assertAlmostEqual(report.maximum_atr, 100.0 / 1.5)
         self.assertFalse(report.fits_risk_cap)
-    def test_structured_order_revalidates_rrr_and_preserves_two_percent_cap(self):
-        settings = Settings(
-            dry_run=True,
-            trading_enabled=False,
-            max_risk_fraction=0.02,
-            strategy_name="LiquidityBreakout",
-        )
-        agent = MT5ExecutionAgent(settings, FakeMT5())
-        plan = agent.build_structured_order(
-            "XAUUSD+",
-            Side.BUY,
-            stop_loss=98.0,
-            take_profit=105.0,
-            atr=1.0,
-            minimum_rrr=2.5,
-        )
-        self.assertAlmostEqual(plan.entry, 100.0)
-        self.assertAlmostEqual(plan.stop_loss, 98.0)
-        self.assertAlmostEqual(plan.take_profit, 105.0)
-        self.assertLessEqual(plan.risk_amount, 200.0)
-        with self.assertRaisesRegex(ValueError, "reward/risk"):
-            agent.build_structured_order(
-                "XAUUSD+",
-                Side.BUY,
-                stop_loss=98.0,
-                take_profit=104.9,
-                atr=1.0,
-                minimum_rrr=2.5,
-            )
-
-    def test_daily_performance_counts_current_magic_and_costs(self):
-        settings = Settings(
-            strategy_name="LiquidityBreakout",
-            liquidity_daily_timezone="UTC",
-            liquidity_daily_active_capital=1000.0,
-            liquidity_daily_target_fraction=0.25,
-        )
-        fake = FakeLiquidityMT5()
-        now = datetime(2026, 8, 24, 12, tzinfo=timezone.utc)
-        timestamp = int(now.timestamp() * 1000)
-        fake.deals = [
-            SimpleNamespace(
-                magic=settings.magic_number,
-                position_id=1,
-                comment="CryptoAgent|LiquidityBreakout",
-                time_msc=timestamp,
-                entry=0,
-                profit=0.0,
-                commission=-1.0,
-                swap=0.0,
-                fee=0.0,
-            ),
-            SimpleNamespace(
-                magic=settings.magic_number,
-                position_id=1,
-                comment="CryptoAgent|LiquidityBreakout",
-                time_msc=timestamp,
-                entry=0,
-                profit=0.0,
-                commission=0.0,
-                swap=0.0,
-                fee=0.0,
-            ),
-            SimpleNamespace(
-                magic=settings.magic_number,
-                position_id=1,
-                comment="[tp]",
-                time_msc=timestamp,
-                entry=1,
-                profit=252.0,
-                commission=-1.0,
-                swap=0.0,
-                fee=0.0,
-            ),
-            SimpleNamespace(
-                magic=settings.magic_number,
-                position_id=2,
-                comment="unrelated",
-                time_msc=timestamp,
-                entry=0,
-                profit=1000.0,
-                commission=0.0,
-                swap=0.0,
-                fee=0.0,
-            ),
-        ]
-
-        daily = MT5ExecutionAgent(settings, fake).daily_performance(now)
-
-        self.assertEqual(daily.entries, 1)
-        self.assertAlmostEqual(daily.net_profit, 250.0)
-        self.assertAlmostEqual(daily.target_profit, 250.0)
-        self.assertTrue(daily.target_reached)
-
-    def test_liquidity_position_moves_to_breakeven_only_at_two_r(self):
-        settings = Settings(
-            trading_enabled=True,
-            dry_run=False,
-            mt5_terminal_path=r"D:\MT5IntelliTrade\terminal64.exe",
-            strategy_name="LiquidityBreakout",
-        )
-        fake = FakeLiquidityMT5()
-        fake.positions = [
-            SimpleNamespace(
-                magic=settings.magic_number,
-                symbol="XAUUSD+",
-                comment="CryptoAgent|LiquidityBreakout",
-                type=fake.POSITION_TYPE_BUY,
-                price_open=100.0,
-                sl=98.0,
-                tp=106.0,
-                ticket=123,
-            )
-        ]
-
-        MT5ExecutionAgent(settings, fake).move_positions_to_breakeven()
-
-        self.assertEqual(fake.request["action"], fake.TRADE_ACTION_SLTP)
-        self.assertEqual(fake.request["position"], 123)
-        self.assertAlmostEqual(fake.request["sl"], 100.0)
-        self.assertAlmostEqual(fake.request["tp"], 106.0)
-
 
     def test_paper_cap_does_not_change_existing_runtime_sizing_limit(self):
         settings = Settings(dry_run=True, trading_enabled=False, max_risk_fraction=0.02)
@@ -286,18 +137,6 @@ class ExecutionTests(unittest.TestCase):
         self.assertEqual(plan.volume, 0.01)
         self.assertLessEqual(plan.risk_amount, 200.0)
 
-
-    def test_liquidity_configuration_fails_closed_below_rrr_or_above_trade_cap(self):
-        with self.assertRaisesRegex(ValueError, "LIQUIDITY_MIN_RRR"):
-            Settings(
-                strategy_mode="liquidity_breakout",
-                liquidity_min_rrr=2.49,
-            ).validate()
-        with self.assertRaisesRegex(ValueError, "LIQUIDITY_MAX_TRADES_PER_DAY"):
-            Settings(
-                strategy_mode="liquidity_breakout",
-                liquidity_max_trades_per_day=4,
-            ).validate()
 
 if __name__ == "__main__":
     unittest.main()
