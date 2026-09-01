@@ -1,9 +1,13 @@
+import json
+import tempfile
 import unittest
+from pathlib import Path
 
 import numpy as np
 
 from execution_agent import Side
-from liquidity_backtest import ReplayPosition, _closed_slice, _position_event
+from config import Settings
+from liquidity_backtest import ReplayPosition, _closed_slice, _position_event, append_experiment
 
 
 def bar(open_price, high, low, close, spread=0):
@@ -21,6 +25,24 @@ def bar(open_price, high, low, close, spread=0):
 
 
 class LiquidityBacktestTests(unittest.TestCase):
+    def test_experiment_ledger_is_research_only_and_fail_closed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            ledger = Path(directory) / "liquidity_experiments.jsonl"
+            append_experiment(
+                ledger,
+                Settings(),
+                30_000,
+                1_000.0,
+                3.0,
+                10.0,
+                [{"symbol": "BTCUSD", "trades": 4, "profit_factor": 1.1}],
+            )
+            record = json.loads(ledger.read_text(encoding="utf-8"))
+            self.assertEqual(record["evidence_class"], "HISTORICAL_BACKTEST_NOT_FORWARD_EVIDENCE")
+            self.assertFalse(record["promotion_eligible"])
+            self.assertFalse(record["routing_changed"])
+            self.assertIn("WALK_FORWARD_STABILITY_NOT_PROVEN", record["promotion_blockers"])
+
     def test_higher_timeframe_slice_excludes_unclosed_bar(self):
         rates = np.zeros(4, dtype=[("time", "i8")])
         rates["time"] = [0, 900, 1800, 2700]

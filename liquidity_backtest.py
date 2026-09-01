@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import html
 import json
 import math
@@ -411,6 +412,61 @@ def write_report(report_dir: Path, trades: list[ReplayTrade], summaries: list[di
     (report_dir / "liquidity_backtest.html").write_text(document, encoding="utf-8")
 
 
+def append_experiment(
+    ledger: Path,
+    settings: Settings,
+    m3_bars: int,
+    starting_equity: float,
+    commission_per_lot_side: float,
+    slippage_points: float,
+    summaries: list[dict[str, object]],
+) -> Path:
+    generated_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    configuration = {
+        "minimum_rrr": settings.liquidity_min_rrr,
+        "minimum_touches": settings.liquidity_min_touches,
+        "volume_expansion": settings.liquidity_volume_expansion,
+        "momentum_body_fraction": settings.liquidity_momentum_body_fraction,
+        "maximum_trades_per_day": settings.liquidity_max_trades_per_day,
+        "daily_active_capital": settings.liquidity_daily_active_capital,
+        "daily_target_fraction": settings.liquidity_daily_target_fraction,
+        "daily_timezone": settings.liquidity_daily_timezone,
+        "m3_bars": m3_bars,
+        "starting_equity": starting_equity,
+        "commission_per_lot_side": commission_per_lot_side,
+        "slippage_points_per_fill": slippage_points,
+    }
+    configuration_hash = hashlib.sha256(
+        json.dumps(configuration, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    record = {
+        "experiment_id": hashlib.sha256(
+            f"{generated_at}:{configuration_hash}".encode("utf-8")
+        ).hexdigest()[:16],
+        "generated_at": generated_at,
+        "strategy_id": "liquidity_breakout",
+        "timeframes": ["H4", "M15", "M3"],
+        "configuration_hash": configuration_hash,
+        "configuration": configuration,
+        "evidence_class": "HISTORICAL_BACKTEST_NOT_FORWARD_EVIDENCE",
+        "summaries": summaries,
+        "result": "RESEARCH_ONLY_INSUFFICIENT_STABLE_DEVELOPMENT_EVIDENCE",
+        "promotion_eligible": False,
+        "promotion_blockers": [
+            "MINIMUM_TRADES_PER_SEGMENT_NOT_PROVEN",
+            "WALK_FORWARD_STABILITY_NOT_PROVEN",
+            "UNTOUCHED_TEST_NOT_PROVEN",
+            "FORWARD_DEMO_NOT_STARTED",
+        ],
+        "routing_changed": False,
+        "forward_demo_status": "NOT_STARTED",
+    }
+    ledger.parent.mkdir(parents=True, exist_ok=True)
+    with ledger.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(record, allow_nan=False) + "\n")
+    return ledger
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--m3-bars", type=int, default=30_000)
@@ -432,7 +488,17 @@ def main() -> None:
     finally:
         execution.shutdown()
     write_report(settings.report_dir, trades, summaries)
+    ledger = append_experiment(
+        Path("research") / "liquidity_experiments.jsonl",
+        settings,
+        args.m3_bars,
+        args.starting_equity,
+        args.commission_per_lot_side,
+        args.slippage_points,
+        summaries,
+    )
     print(json.dumps(summaries, indent=2, allow_nan=False))
+    print(ledger)
     print(settings.report_dir / "liquidity_backtest.html")
 
 
