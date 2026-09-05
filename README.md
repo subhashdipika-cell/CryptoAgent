@@ -63,11 +63,13 @@ This workstation's verified Vantage DEMO terminal uses `BTCUSD` and the broker-s
 .\Start-CryptoAgent.bat
 ```
 
-Double-click `Start-CryptoAgent.bat` to enable order routing to the verified DEMO
-terminal. The launcher forces `REQUIRE_DEMO_ACCOUNT=true`, and the runtime refuses
-to connect if the selected account is not DEMO. It retains the 2% equity risk cap,
-initial SL/TP requirement, and ATR trailing controls. Validate its local terminal,
-environment, model, and symbol configuration without starting the loop:
+`Start-CryptoAgent.bat` requests order routing to the verified DEMO terminal, but
+startup also requires `policies/strategy_readiness.json` to prove that every
+configured asset is `DEMO_READY`. Missing, stale, rejected, revoked, or
+configuration-mismatched evidence fails closed before the forecast or execution
+engines initialize. The launcher forces `REQUIRE_DEMO_ACCOUNT=true`, and the
+runtime refuses any non-DEMO account. Validate the terminal, model, symbols, and
+readiness without starting the loop:
 
 ```powershell
 .\Start-CryptoAgent.bat --check
@@ -85,6 +87,23 @@ For another broker, pass `-TerminalPath`, `-BitcoinSymbol`, and `-GoldSymbol`, o
 
 For a bounded deployment check, set the same environment variables and call
 `TradingApplication().run_once()`. This method refuses to run unless dry-run is enabled.
+
+Refresh the reconciled DEMO evidence before generating the readiness registry:
+
+```powershell
+$env:REQUIRE_DEMO_ACCOUNT = "true"
+$env:TRADING_ENABLED = "false"
+$env:DRY_RUN = "true"
+.\.venv\Scripts\python.exe performance_report.py --sync
+.\.venv\Scripts\python.exe strategy_readiness.py generate
+```
+
+The human dashboard is `reports/strategy_readiness.html`. Readiness requires at
+least 30 reconciled DEMO trades across 10 sessions per configured asset, positive
+cost-adjusted expectancy, profit factor at least 1.20, maximum drawdown at most
+5%, an approved policy, fresh DEMO reconciliation, and an unchanged configuration
+hash. This permits DEMO routing only; it is not evidence or a guarantee of future
+profit.
 
 Run deterministic tests without a terminal connection:
 
@@ -111,9 +130,12 @@ untouched later 35% for its deployment gate. BTC uses a dedicated H1-only policy
 M15 is still journaled for diagnostics but cannot block, authorize, or change the
 H1 direction. Each completed H1 bar is evaluated at most once, preventing repeated
 entries from the same hourly forecast. BTC H1 validation samples up to 360
-chronological folds. The threshold is selected only on the earlier 65%, and DEMO
-eligibility requires at least five later holdout trades, positive net returns
-after assumed costs, at least 52% directional accuracy, and profit factor 1.10.
+chronological folds; Gold composite validation samples up to 240 candidate
+origins. Thresholds are selected only on the earlier 65%. Candidate eligibility
+requires at least 30 later holdout trades, positive net returns after assumed
+costs, at least 52% directional accuracy, profit factor at least 1.20, drawdown no
+greater than 500 bps, no single win above 35% of gross profit, and positive
+behavior in each of three chronological holdout segments.
 
 Every signal records a decision reason: `ENTRY_SIGNAL`, `TIMEFRAME_DISAGREEMENT`,
 `INSUFFICIENT_EDGE`, `UNVALIDATED_MODEL`, `MODEL_POLICY_MISMATCH`,
@@ -158,8 +180,8 @@ After reviewing a passing BTC candidate, promotion requires this explicit comman
 
 A failed candidate cannot be approved. A successful manual approval is recorded
 in the active policy audit, and CryptoAgent must be restarted before the approved
-policy can influence DEMO orders. Gold's current active approval is preserved by
-candidate revalidation.
+policy can influence DEMO orders. Candidate revalidation never changes the active
+policy; both currently rejected asset policies remain disabled.
 
 Two general-purpose foundation challengers are supported through strictly offline
 adapters:

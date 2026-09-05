@@ -1,0 +1,92 @@
+{
+  "schema_version": 2,
+  "generated_at": "2026-09-05T17:03:17+00:00",
+  "overall_status": "NO_STRATEGY_READY",
+  "deployment_scope": "DEMO_ONLY",
+  "reconciliation": {
+    "status": "SUCCESS",
+    "synced_at": "2026-09-05T16:57:27+00:00",
+    "server": "VantageMarkets-Demo",
+    "trade_mode": 0,
+    "require_demo_account": true,
+    "orders": 28,
+    "deals": 28,
+    "maximum_age_minutes": 90,
+    "fresh_demo_reconciliation": true
+  },
+  "thresholds": {
+    "minimum_forward_trades": 30,
+    "minimum_forward_sessions": 10,
+    "minimum_profit_factor": 1.2,
+    "maximum_drawdown_pct": 5.0,
+    "positive_expectancy_required": true
+  },
+  "strategies": [
+    {
+      "strategy_id": "asset_calibrated",
+      "display_name": "BTC and Gold Asset Calibrated",
+      "strategy_mode": "calibrated",
+      "status": "REVOKED",
+      "demo_deployable": false,
+      "configuration_hash": "8c94fccda0f950037fe363dc337fa2ae0dfec4a47e72cb4fbac176625ef7d429",
+      "symbols": [
+        {
+          "symbol": "BTCUSD",
+          "status": "REVOKED",
+          "demo_deployable": false,
+          "metrics": {
+            "trades": 0,
+            "sessions": 0,
+            "net_profit_after_costs": 0.0,
+            "expectancy_after_costs": 0.0,
+            "profit_factor": 0.0,
+            "max_drawdown_pct": null
+          },
+          "blockers": [
+            "POLICY_DISABLED",
+            "POLICY_NOT_APPROVED",
+            "FORWARD_TRADES_0_OF_30",
+            "FORWARD_SESSIONS_0_OF_10",
+            "NON_POSITIVE_FORWARD_EXPECTANCY",
+            "FORWARD_PROFIT_FACTOR_BELOW_1_20",
+            "FORWARD_DRAWDOWN_PERCENT_UNAVAILABLE"
+          ]
+        },
+        {
+          "symbol": "XAUUSD+",
+          "status": "REVOKED",
+          "demo_deployable": false,
+          "metrics": {
+            "trades": 65,
+            "sessions": 11,
+            "net_profit_after_costs": -1104.9,
+            "expectancy_after_costs": -16.99846153846154,
+            "profit_factor": 0.32969332969332976,
+            "max_drawdown_pct": 108.28912890649967
+          },
+          "blockers": [
+            "POLICY_DISABLED",
+            "POLICY_NOT_APPROVED",
+            "NON_POSITIVE_FORWARD_EXPECTANCY",
+            "FORWARD_PROFIT_FACTOR_BELOW_1_20",
+            "FORWARD_DRAWDOWN_ABOVE_5_PERCENT"
+          ]
+        }
+      ],
+      "blockers": [
+        "BTCUSD:POLICY_DISABLED",
+        "BTCUSD:POLICY_NOT_APPROVED",
+        "BTCUSD:FORWARD_TRADES_0_OF_30",
+        "BTCUSD:FORWARD_SESSIONS_0_OF_10",
+        "BTCUSD:NON_POSITIVE_FORWARD_EXPECTANCY",
+        "BTCUSD:FORWARD_PROFIT_FACTOR_BELOW_1_20",
+        "BTCUSD:FORWARD_DRAWDOWN_PERCENT_UNAVAILABLE",
+        "XAUUSD+:POLICY_DISABLED",
+        "XAUUSD+:POLICY_NOT_APPROVED",
+        "XAUUSD+:NON_POSITIVE_FORWARD_EXPECTANCY",
+        "XAUUSD+:FORWARD_PROFIT_FACTOR_BELOW_1_20",
+        "XAUUSD+:FORWARD_DRAWDOWN_ABOVE_5_PERCENT"
+      ]
+    }
+  ]
+}

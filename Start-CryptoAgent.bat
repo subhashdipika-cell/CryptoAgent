@@ -42,12 +42,17 @@ if not exist "models\chronos-2-base\config.json" (
 )
 
 if /I "%~1"=="--check" (
+    ".venv\Scripts\python.exe" strategy_readiness.py check
+    if errorlevel 1 (
+        echo ERROR: Strategy readiness check failed. DEMO routing remains blocked.
+        exit /b 1
+    )
     echo CryptoAgent startup check passed.
     echo Terminal: %MT5_TERMINAL_PATH%
     echo Symbols:  %MT5_BTC_SYMBOL%, %MT5_XAU_SYMBOL%
     echo Expert ID: %MT5_MAGIC% ^(CryptoAgent^)
     echo Comment:   %MT5_APP_NAME%^|%TRADING_STRATEGY%
-    echo Mode:     DEMO only - order routing ENABLED
+    echo Mode:     DEMO only - readiness-gated order routing ENABLED
     echo Predictor: Dedicated BTC/XAU models with holdout-calibrated policy
     echo Risk:     Maximum 2%% of equity per trade
     echo Revalidation: Candidate-only after 500 new completed M15 bars
@@ -57,6 +62,7 @@ if /I "%~1"=="--check" (
 
 echo Starting CryptoAgent with MT5 DEMO order routing enabled...
 echo The agent will stop if the connected account is not DEMO.
+echo It will also stop unless every configured strategy policy is DEMO_READY.
 echo Close this window or press Ctrl+C to stop the agent cleanly.
 echo.
 

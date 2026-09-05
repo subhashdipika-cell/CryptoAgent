@@ -73,7 +73,7 @@ class PolicyGovernanceTests(unittest.TestCase):
                 traded=True,
                 net_return_bps=10.0,
             )
-            for index in range(60)
+            for index in range(120)
         ]
         candidate, diagnostics = calibrate_h1_policy("BTCUSD", folds)
         self.assertTrue(candidate["enabled"])
@@ -92,7 +92,7 @@ class PolicyGovernanceTests(unittest.TestCase):
                 traded=True,
                 net_return_bps=10.0 if index < 39 else -30.0,
             )
-            for index in range(60)
+            for index in range(120)
         ]
         candidate, diagnostics = calibrate_h1_policy("BTCUSD", folds)
         self.assertFalse(candidate["enabled"])

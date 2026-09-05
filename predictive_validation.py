@@ -47,12 +47,62 @@ def _profit_factor(returns: list[float]) -> float:
     return wins / losses if losses else (999.0 if wins else 0.0)
 
 
+def _holdout_robustness(returns: list[float]) -> dict[str, object]:
+    """Apply sample, drawdown, concentration, and chronological stability gates."""
+    if returns:
+        equity = np.cumsum(np.asarray(returns, dtype=np.float64))
+        curve = np.concatenate(([0.0], equity))
+        max_drawdown_bps = float(np.max(np.maximum.accumulate(curve) - curve))
+        gross_profit = sum(value for value in returns if value > 0)
+        largest_win_share = (
+            max((value for value in returns if value > 0), default=0.0) / gross_profit
+            if gross_profit > 0 else 1.0
+        )
+    else:
+        max_drawdown_bps = 0.0
+        largest_win_share = 1.0
+    segments = [list(values) for values in np.array_split(returns, 3)]
+    segment_metrics = [
+        {
+            "trades": len(values),
+            "net_bps": float(sum(values)),
+            "profit_factor": _profit_factor(values),
+        }
+        for values in segments
+    ]
+    stable = bool(
+        len(returns) >= 30
+        and all(
+            row["trades"] >= 8
+            and row["net_bps"] > 0
+            and row["profit_factor"] >= 1.0
+            for row in segment_metrics
+        )
+    )
+    passed = bool(
+        len(returns) >= 30
+        and sum(returns) > 0
+        and _profit_factor(returns) >= 1.20
+        and max_drawdown_bps <= 500.0
+        and largest_win_share <= 0.35
+        and stable
+    )
+    return {
+        "minimum_holdout_trades": 30,
+        "holdout_max_drawdown_bps": max_drawdown_bps,
+        "holdout_largest_win_share": largest_win_share,
+        "holdout_segments": segment_metrics,
+        "stable_walk_forward": stable,
+        "robustness_gate": "PASS" if passed else "FAIL",
+    }
+
+
 def composite_walk_forward(
     symbol: str,
     m15_rates: np.ndarray,
     h1_rates: np.ndarray,
     settings: Settings,
-    max_folds: int = 80,
+    max_folds: int = 240,
 ) -> list[CompositeFold]:
     """Reproduce the live M15 plus latest fully closed H1 chronology."""
     m15 = rates_to_ohlc(m15_rates)
@@ -105,7 +155,7 @@ def calibrate_policy(symbol: str, folds: list[CompositeFold]) -> tuple[dict[str,
                     (1.0 if fold.direction == "BULLISH" else -1.0) * fold.actual_return_bps
                     - spec.round_trip_cost_bps for fold in selected
                 ]
-                if len(returns) >= 5 and (best is None or sum(returns) > sum(best[3])):
+                if len(returns) >= 30 and (best is None or sum(returns) > sum(best[3])):
                     best = (confidence, m15_edge, h1_edge, returns)
     if best is None:
         best = (0.70, spec.minimum_edge_bps * 2, spec.minimum_edge_bps * 2, [])
@@ -126,9 +176,9 @@ def calibrate_policy(symbol: str, folds: list[CompositeFold]) -> tuple[dict[str,
     )
     accuracy = correct / len(selected_holdout) if selected_holdout else 0.0
     profit_factor = _profit_factor(holdout_returns)
+    robustness = _holdout_robustness(holdout_returns)
     enabled = (
-        len(selected_holdout) >= 5 and accuracy >= 0.52
-        and sum(holdout_returns) > 0 and profit_factor >= 1.10
+        accuracy >= 0.52 and robustness["robustness_gate"] == "PASS"
     )
     policy = {
         "symbol": symbol,
@@ -148,6 +198,7 @@ def calibrate_policy(symbol: str, folds: list[CompositeFold]) -> tuple[dict[str,
         **policy,
         "composite_agreement_folds": len(folds),
         "holdout_direction_accuracy": accuracy,
+        **robustness,
         "deployment": "DEMO_ELIGIBLE" if enabled else "SHADOW_ONLY",
     }
     return policy, diagnostics
@@ -182,7 +233,7 @@ def calibrate_h1_policy(
                 - spec.round_trip_cost_bps
                 for fold in selected
             ]
-            if len(returns) >= 10 and (best is None or sum(returns) > sum(best[2])):
+            if len(returns) >= 30 and (best is None or sum(returns) > sum(best[2])):
                 best = (confidence, h1_edge, returns)
     if best is None:
         best = (0.70, spec.minimum_edge_bps * 2.0, [])
@@ -201,11 +252,9 @@ def calibrate_h1_policy(
     correct = sum(fold.direction_correct for fold in selected_holdout)
     accuracy = correct / len(selected_holdout) if selected_holdout else 0.0
     profit_factor = _profit_factor(holdout_returns)
+    robustness = _holdout_robustness(holdout_returns)
     enabled = (
-        len(selected_holdout) >= 5
-        and accuracy >= 0.52
-        and sum(holdout_returns) > 0
-        and profit_factor >= 1.10
+        accuracy >= 0.52 and robustness["robustness_gate"] == "PASS"
     )
     policy = {
         "symbol": symbol,
@@ -225,6 +274,7 @@ def calibrate_h1_policy(
         **policy,
         "h1_folds": len(folds),
         "holdout_direction_accuracy": accuracy,
+        **robustness,
         "deployment": "DEMO_ELIGIBLE" if enabled else "SHADOW_ONLY",
     }
     return policy, diagnostics
@@ -274,10 +324,10 @@ def summarize(symbol: str, timeframe: str, folds: list[FoldResult], settings: Se
     net_bps = sum(fold.net_return_bps for fold in traded)
     passed = (
         len(folds) >= settings.validation_min_folds
-        and len(traded) >= 10
+        and len(traded) >= 30
         and direction_accuracy >= 0.52
         and net_bps > 0
-        and profit_factor >= 1.10
+        and profit_factor >= 1.20
     )
     return {
         "symbol": symbol,
