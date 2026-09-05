@@ -1,13 +1,20 @@
-# Hybrid Chronos + FinBERT MT5 Agent
+# Asset-Specific BTC/Gold + Chronos + FinBERT MT5 Agent
 
 An asynchronous Windows trading service for BTCUSD and XAUUSD. Chronos-2 runs locally on CPU from pre-staged files; news and FinBERT sentiment are isolated behind an asynchronous, neutral-on-failure adapter. MT5 is the only execution interface.
+
+Dedicated `BTC-DirectRidge` and `XAU-DirectRidge` pipelines are fitted independently
+on completed broker OHLC bars. They use different context lengths, regularization,
+minimum edge, and cost assumptions. The production launcher uses
+`PREDICTIVE_MODE=calibrated`: only a policy that passes a chronological holdout
+gate may influence DEMO orders. Failed or missing policies fail closed with
+`UNVALIDATED_MODEL`.
 
 ## Safety defaults
 
 - Order routing is off (`TRADING_ENABLED=false`) and dry-run logging is on.
 - A DEMO account is required by default.
 - Every order plan includes its initial SL and TP.
-- Risk is capped at 1% of current equity and rounded down to broker lot steps.
+- Risk is capped at 2% of current equity and rounded down to broker lot steps.
 - A separate margin policy limits each order to 25% of free margin.
 - One managed position per symbol prevents repeated entries each loop.
 - Entry orders use Expert ID `26081301` and the Comment
@@ -56,11 +63,13 @@ This workstation's verified Vantage DEMO terminal uses `BTCUSD` and the broker-s
 .\Start-CryptoAgent.bat
 ```
 
-Double-click `Start-CryptoAgent.bat` to enable order routing to the verified DEMO
-terminal. The launcher forces `REQUIRE_DEMO_ACCOUNT=true`, and the runtime refuses
-to connect if the selected account is not DEMO. It retains the 1% equity risk cap,
-initial SL/TP requirement, and ATR trailing controls. Validate its local terminal,
-environment, model, and symbol configuration without starting the loop:
+`Start-CryptoAgent.bat` requests order routing to the verified DEMO terminal, but
+startup also requires `policies/strategy_readiness.json` to prove that every
+configured asset is `DEMO_READY`. Missing, stale, rejected, revoked, or
+configuration-mismatched evidence fails closed before the forecast or execution
+engines initialize. The launcher forces `REQUIRE_DEMO_ACCOUNT=true`, and the
+runtime refuses any non-DEMO account. Validate the terminal, model, symbols, and
+readiness without starting the loop:
 
 ```powershell
 .\Start-CryptoAgent.bat --check
@@ -79,6 +88,23 @@ For another broker, pass `-TerminalPath`, `-BitcoinSymbol`, and `-GoldSymbol`, o
 For a bounded deployment check, set the same environment variables and call
 `TradingApplication().run_once()`. This method refuses to run unless dry-run is enabled.
 
+Refresh the reconciled DEMO evidence before generating the readiness registry:
+
+```powershell
+$env:REQUIRE_DEMO_ACCOUNT = "true"
+$env:TRADING_ENABLED = "false"
+$env:DRY_RUN = "true"
+.\.venv\Scripts\python.exe performance_report.py --sync
+.\.venv\Scripts\python.exe strategy_readiness.py generate
+```
+
+The human dashboard is `reports/strategy_readiness.html`. Readiness requires at
+least 30 reconciled DEMO trades across 10 sessions per configured asset, positive
+cost-adjusted expectancy, profit factor at least 1.20, maximum drawdown at most
+5%, an approved policy, fresh DEMO reconciliation, and an unchanged configuration
+hash. This permits DEMO routing only; it is not evidence or a guarantee of future
+profit.
+
 Run deterministic tests without a terminal connection:
 
 ```powershell
@@ -86,6 +112,131 @@ Run deterministic tests without a terminal connection:
 ```
 
 Logs rotate under `logs/trading.log`. The loop requests 500 completed bars (the forming bar is excluded) for both M15 and H1. Both timeframe forecasts must agree before sentiment can contribute to a trade decision. Trailing activates after +1.5 ATR and maintains a 1.0 ATR distance.
+
+## Dedicated model validation
+
+Generate a leakage-free walk-forward report from 3,000 completed MT5 bars by
+double-clicking `Generate-Predictive-Validation.bat`, or run:
+
+```powershell
+.\.venv\Scripts\python.exe predictive_validation.py --bars 3000
+```
+
+The report writes `predictive_validation.html`, JSON methodology/results, and
+fold-level CSV evidence under `reports/`. It subtracts explicit asset cost
+assumptions, but does not reproduce tick-level fills. Gold's complete M15+H1
+policy uses the earlier 65% of chronological folds to select thresholds and the
+untouched later 35% for its deployment gate. BTC uses a dedicated H1-only policy:
+M15 is still journaled for diagnostics but cannot block, authorize, or change the
+H1 direction. Each completed H1 bar is evaluated at most once, preventing repeated
+entries from the same hourly forecast. BTC H1 validation samples up to 360
+chronological folds; Gold composite validation samples up to 240 candidate
+origins. Thresholds are selected only on the earlier 65%. Candidate eligibility
+requires at least 30 later holdout trades, positive net returns after assumed
+costs, at least 52% directional accuracy, profit factor at least 1.20, drawdown no
+greater than 500 bps, no single win above 35% of gross profit, and positive
+behavior in each of three chronological holdout segments.
+
+Every signal records a decision reason: `ENTRY_SIGNAL`, `TIMEFRAME_DISAGREEMENT`,
+`INSUFFICIENT_EDGE`, `UNVALIDATED_MODEL`, `MODEL_POLICY_MISMATCH`,
+`H1_BAR_ALREADY_EVALUATED`, or `POSITION_ALREADY_OPEN`. A signal that cannot satisfy broker size, margin, or
+risk constraints is recorded as `ORDER_PLAN_REJECTED`. When sentiment is degraded, its weight is omitted and
+the quantitative timeframes are renormalized instead of assigning permanent
+neutral weight.
+
+### XAUUSD minimum-equity paper report
+
+Run `Generate-Paper-Risk-Report.bat` to create read-only HTML and JSON evidence for
+XAUUSD 0.01 lot under a fixed 1% reference risk cap. The report reads the current
+DEMO account equity, broker contract metadata, and completed-bar ATR, then shows
+the minimum equity required at the current ATR stop and the maximum ATR/stop
+distance supported by current equity. It forcibly disables order routing and does
+not change the configured runtime sizing cap.
+
+Each `ORDER_PLAN_REJECTED` decision is also written to the
+`order_plan_rejections` journal table with the original error, 1% risk/equity
+shortfalls, minimum equity, and maximum ATR/stop conditions. These rows are
+exported to `reports/order_plan_rejections.csv` and shown in the performance report.
+
+### Scheduled revalidation and manual promotion
+
+The production launcher counts unique completed M15 bars persistently under
+`data/revalidation_state.json`. After at least 500 new bars, it starts the
+validation script in an isolated hidden process while trading/position management
+continues. Revalidation writes only
+`reports/candidate_asset_decision_policy.json`; it never changes the active policy.
+
+Inspect active and candidate policies:
+
+```powershell
+.\.venv\Scripts\python.exe policy_admin.py status
+```
+
+After reviewing a passing BTC candidate, promotion requires this explicit command:
+
+```powershell
+.\.venv\Scripts\python.exe policy_admin.py approve BTCUSD
+```
+
+A failed candidate cannot be approved. A successful manual approval is recorded
+in the active policy audit, and CryptoAgent must be restarted before the approved
+policy can influence DEMO orders. Candidate revalidation never changes the active
+policy; both currently rejected asset policies remain disabled.
+
+Two general-purpose foundation challengers are supported through strictly offline
+adapters:
+
+- `ibm-granite/granite-timeseries-ttm-r3`: preferred CPU challenger because its
+  family is much smaller. Install `requirements-candidates.txt`, then stage `ttm`.
+- `google/timesfm-2.5-200m-transformers`: PyTorch Transformers equivalent of the
+  200M TimesFM 2.5 checkpoint. It is an accuracy challenger with a substantially
+  larger RAM footprint; stage `timesfm` only for bounded validation.
+
+```powershell
+.\.venv\Scripts\python.exe stage_candidate_models.py ttm
+.\.venv\Scripts\python.exe stage_candidate_models.py timesfm
+```
+
+Neither checkpoint is finance-specific. It must beat the asset-specific baseline
+on BTC and Gold walk-forward/forward data before it can influence execution.
+
+## Strategy backtest
+
+### Isolated BTC trend and Gold session experiment
+
+`regime_experiment.py` evaluates H1 EMA20/50 trend plus a prior 20-bar breakout.
+BTC varies only the 20-bar efficiency threshold; Gold varies only UTC entry
+sessions with efficiency fixed at 0.2. Stops (2 ATR), targets (3 ATR), six-bar
+holding limit and 0.5% research risk stay fixed. Selection uses the first 70%
+of data in three chronological segments, then evaluates the selected candidate
+on the final 30% and at 1.5 times assumed costs. Adjacent parameter results must
+also be stable. Each segment starts with $1,000; this is not portfolio evidence.
+
+Capture a new immutable DEMO snapshot and run the experiment:
+
+```powershell
+$env:MT5_TERMINAL_PATH = 'D:\MT5IntelliTrade\terminal64.exe'
+.\.venv\Scripts\python.exe regime_experiment.py --capture --snapshot data/regime_run1.npz --output research/regime_run1.json
+```
+
+Omit `--capture` to reproduce the same snapshot offline, using a new output path.
+Snapshots and source files are hashed in the result. Existing output files are
+never overwritten. The final partition is explicitly **previously observed**:
+earlier research already inspected overlapping history. Assumed commission and
+slippage, current contract conversion, bar-level fills and unavailable historical
+margin data prevent promotion. The module has no routing integration. Independent
+future data and broker cost verification remain required even if proxy gates pass.
+
+Double-click `Run-Strategy-Backtest.bat` to replay the locked calibrated policy
+over its chronological policy-holdout period. The broker-aware proxy uses MT5
+historical spread, next-M15-bar entry, 0.03 commission per side, 10 points of
+adverse slippage per fill, dynamic 2% risk sizing, broker volume steps, hard
+SL/TP, and conservative stop-first resolution for ambiguous OHLC bars.
+
+Outputs are `strategy_backtest.html`, `strategy_backtest.json`, and
+`strategy_backtest_trades.csv` under `reports/`. This is a policy-holdout replay,
+not a second untouched test or forward evidence; retain DEMO execution until a
+separate forward sample is large enough to assess.
 
 ## AutoGen implementation team
 
@@ -107,10 +258,14 @@ Generate fresh reports by double-clicking `Generate-Performance-Report.bat`, or 
 Outputs under `reports/` include:
 
 - `performance_report.html`: overall metrics and strategy/asset breakdown.
+- `forward_evidence.csv`: per-asset reconciled DEMO results entered inside the
+  policy-active window, including sample size, net P/L after costs, drawdown, win rate, and profit factor.
 - `completed_trades.csv`: one row per completed position with net P/L and exit reason.
 - `deals.csv` and `orders.csv`: reconciled broker records.
 - `submissions.csv`: requested/executed price, planned risk, ATR, SL/TP, and errors.
 - `signals.csv`: M15/H1 forecasts, sentiment, ATR, and BUY/SELL/HOLD decisions.
+- `model_forecasts.csv`: shadow/active per-model predictions, confidence, and edge.
+- `order_plan_rejections.csv`: one row per rejected entry plan with 1% paper shortfalls.
 - `equity_snapshots.csv`: account equity, free margin, leverage, and position count.
 
 Realized metrics come from MT5 deals and include profit, commission, swap, and fees.
@@ -118,10 +273,21 @@ Open positions and unfilled orders are deliberately excluded. Broker comments ar
 descriptive and can be overwritten on SL/TP exits, so Expert ID is the primary
 attribution key. Back up the SQLite file if the journal must survive machine loss.
 
+Forward evidence uses only the current routed Expert ID, requires the latest
+account/server snapshot to prove MT5 DEMO mode, and requires 30 completed trades
+per asset before leaving `INSUFFICIENT_FORWARD_EVIDENCE`. The threshold indicates
+sample availability, not profitability or promotion eligibility. Reporting is
+read-only and never changes policy, eligibility, sizing, or order routing.
+
 ## Module map
 
 - `config.py`: offline flags, credentials, account/risk gates, paths.
 - `quant_engine.py`: compact OHLC conversion, ATR, Chronos inference, directional mapping.
+- `asset_predictive_engine.py`: separate locally fitted BTC and Gold direct-return models.
+- `foundation_backends.py`: offline IBM TTM-R3 and Google TimesFM 2.5 adapters.
+- `predictive_validation.py`: completed-bar walk-forward validation and reports.
+- `strategy_backtest.py`: broker-aware calibrated-policy execution replay.
+- `paper_risk_report.py`: read-only XAUUSD 0.01-lot minimum-equity and ATR report.
 - `sentiment_engine.py`: pooled async RSS/API collection and FinBERT fallback.
 - `execution_agent.py`: MT5 state, sizing, initial SL/TP order payload, trailing stops.
 - `main.py`: scheduling, logs, signal consensus, clean shutdown.

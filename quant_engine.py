@@ -21,6 +21,8 @@ class ForecastResult:
     direction: str
     probability: float
     normalized_slope: float
+    model_name: str = "Chronos-2"
+    edge_bps: float = 0.0
 
 
 def rates_to_ohlc(rates: Iterable[Any]) -> np.ndarray:
@@ -71,6 +73,8 @@ def trend_from_predictions(last_close: float, predictions: np.ndarray) -> Foreca
         direction="BULLISH" if bullish_probability >= 0.5 else "BEARISH",
         probability=bullish_probability if bullish_probability >= 0.5 else 1.0 - bullish_probability,
         normalized_slope=slope,
+        model_name="Chronos-2",
+        edge_bps=terminal_return * 10_000.0,
     )
 
 

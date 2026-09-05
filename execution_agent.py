@@ -48,6 +48,31 @@ class OrderPlan:
     strategy_name: str = "ChronosFinBERT"
 
 
+@dataclass(frozen=True, slots=True)
+class PaperMinimumLotRiskReport:
+    """Read-only 1% risk conditions for a fixed 0.01-lot order."""
+
+    symbol: str
+    side: Side
+    equity: float
+    risk_cap_fraction: float
+    volume: float
+    atr: float
+    stop_atr_multiple: float
+    stop_distance: float
+    broker_minimum_stop_distance: float
+    risk_budget: float
+    minimum_lot_risk: float
+    risk_shortfall: float
+    minimum_equity: float
+    equity_shortfall: float
+    maximum_stop_distance: float
+    stop_distance_excess: float
+    maximum_atr: float
+    atr_excess: float
+    fits_risk_cap: bool
+
+
 class MT5ExecutionAgent:
     def __init__(self, settings: Settings, mt5_module: Any | None = None):
         self.settings = settings
@@ -133,6 +158,65 @@ class MT5ExecutionAgent:
         if tick_size <= 0 or tick_value <= 0:
             raise RuntimeError(f"{symbol} has invalid tick value metadata")
         return distance / tick_size * tick_value
+
+    def paper_minimum_lot_risk_report(
+        self,
+        symbol: str,
+        side: Side,
+        atr: float,
+        *,
+        risk_cap_fraction: float = 0.01,
+        volume: float = 0.01,
+    ) -> PaperMinimumLotRiskReport:
+        """Calculate paper-only minimum-equity and stop conditions without sizing an order."""
+        account = self.mt5.account_info()
+        info = self.mt5.symbol_info(symbol)
+        tick = self.mt5.symbol_info_tick(symbol)
+        if account is None or info is None or tick is None:
+            raise RuntimeError(f"missing MT5 paper-report metadata for {symbol}: {self.mt5.last_error()}")
+        equity = float(account.equity)
+        if atr <= 0 or equity <= 0 or not 0 < risk_cap_fraction <= 1 or volume <= 0:
+            raise ValueError("ATR, equity, risk cap, and paper volume must be positive")
+        volume_min = float(info.volume_min)
+        volume_step = float(info.volume_step)
+        if volume + 1e-12 < volume_min or volume_step <= 0:
+            raise ValueError(f"{symbol} does not support the paper volume {volume:.2f}")
+        entry = float(tick.ask if side is Side.BUY else tick.bid)
+        sign = 1.0 if side is Side.BUY else -1.0
+        digits = int(info.digits)
+        stop = round(entry - sign * self.settings.stop_atr_multiple * atr, digits)
+        stop_distance = abs(entry - stop)
+        if stop_distance <= 0:
+            raise ValueError(f"{symbol} ATR rounds to a zero paper stop distance")
+        minimum_lot_risk = volume * self._loss_per_lot(symbol, side, entry, stop, info)
+        if minimum_lot_risk <= 0:
+            raise ValueError(f"{symbol} has a non-positive 0.01-lot paper risk")
+        risk_budget = equity * risk_cap_fraction
+        minimum_equity = minimum_lot_risk / risk_cap_fraction
+        maximum_stop_distance = stop_distance * risk_budget / minimum_lot_risk
+        maximum_atr = maximum_stop_distance / self.settings.stop_atr_multiple
+        broker_minimum = float(info.trade_stops_level) * float(info.point)
+        return PaperMinimumLotRiskReport(
+            symbol=symbol,
+            side=side,
+            equity=equity,
+            risk_cap_fraction=risk_cap_fraction,
+            volume=volume,
+            atr=float(atr),
+            stop_atr_multiple=self.settings.stop_atr_multiple,
+            stop_distance=stop_distance,
+            broker_minimum_stop_distance=broker_minimum,
+            risk_budget=risk_budget,
+            minimum_lot_risk=minimum_lot_risk,
+            risk_shortfall=max(0.0, minimum_lot_risk - risk_budget),
+            minimum_equity=minimum_equity,
+            equity_shortfall=max(0.0, minimum_equity - equity),
+            maximum_stop_distance=maximum_stop_distance,
+            stop_distance_excess=max(0.0, stop_distance - maximum_stop_distance),
+            maximum_atr=maximum_atr,
+            atr_excess=max(0.0, float(atr) - maximum_atr),
+            fits_risk_cap=minimum_lot_risk <= risk_budget + 1e-9,
+        )
 
     def build_order(self, symbol: str, side: Side, atr: float) -> OrderPlan:
         account, info, tick = self.mt5.account_info(), self.mt5.symbol_info(symbol), self.mt5.symbol_info_tick(symbol)

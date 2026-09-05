@@ -1,0 +1,114 @@
+{
+  "methodology": "chronological 65% calibration and 35% untouched holdout",
+  "policies": [
+    {
+      "symbol": "BTCUSD",
+      "model_name": "BTC-DirectRidge",
+      "decision_mode": "H1_ONLY",
+      "enabled": false,
+      "approved": false,
+      "confidence_threshold": 0.7,
+      "m15_edge_bps": 0.0,
+      "h1_edge_bps": 10.0,
+      "calibration_trades": 74,
+      "holdout_trades": 26,
+      "holdout_net_bps": -395.1373154483524,
+      "holdout_profit_factor": 0.6138760555527175
+    },
+    {
+      "symbol": "XAUUSD+",
+      "model_name": "XAU-DirectRidge",
+      "enabled": false,
+      "approved": false,
+      "confidence_threshold": 0.68,
+      "activated_at": "2026-08-13T13:18:27+00:00",
+      "m15_edge_bps": 3.0,
+      "h1_edge_bps": 3.0,
+      "calibration_trades": 12,
+      "holdout_trades": 9,
+      "holdout_net_bps": 94.25273821209474,
+      "holdout_profit_factor": 3.4037306668406204
+    }
+  ],
+  "approval_audit": [
+    {
+      "symbol": "XAUUSD+",
+      "action": "FORWARD_EVIDENCE_REJECTION",
+      "rejected_at": "2026-08-28T09:07:15+05:30",
+      "reason": "65 reconciled DEMO forward trades: net -1104.90 after costs, profit factor 0.3297, win rate 33.85%, max drawdown 1186.08; route rejected pending a newly validated candidate.",
+      "candidate_policy": {
+        "symbol": "XAUUSD+",
+        "model_name": "XAU-DirectRidge",
+        "enabled": false,
+        "approved": false,
+        "confidence_threshold": 0.68,
+        "activated_at": "2026-08-13T18:48:27+05:30",
+        "m15_edge_bps": 3.0,
+        "h1_edge_bps": 3.0,
+        "calibration_trades": 12,
+        "holdout_trades": 9,
+        "holdout_net_bps": 94.25273821209474,
+        "holdout_profit_factor": 3.4037306668406204
+      }
+    },
+    {
+      "symbol": "BTCUSD",
+      "action": "MANUAL_APPROVAL",
+      "approved_at": "2026-08-22T03:07:42+05:30",
+      "candidate_policy": {
+        "symbol": "BTCUSD",
+        "model_name": "BTC-DirectRidge",
+        "decision_mode": "H1_ONLY",
+        "enabled": true,
+        "approved": true,
+        "confidence_threshold": 0.52,
+        "m15_edge_bps": 0.0,
+        "h1_edge_bps": 10.0,
+        "calibration_trades": 32,
+        "holdout_trades": 15,
+        "holdout_net_bps": 43.88928243624744,
+        "holdout_profit_factor": 1.1158948111498455
+      }
+    },
+    {
+      "symbol": "BTCUSD",
+      "action": "BACKTEST_REJECTION",
+      "rejected_at": "2026-08-22T03:11:50+05:30",
+      "reason": "Broker-aware H1 replay failed: return -25.00%, profit factor 0.897, max closed-equity drawdown 73.77%",
+      "candidate_policy": {
+        "symbol": "BTCUSD",
+        "model_name": "BTC-DirectRidge",
+        "decision_mode": "H1_ONLY",
+        "enabled": false,
+        "approved": false,
+        "confidence_threshold": 0.52,
+        "m15_edge_bps": 0.0,
+        "h1_edge_bps": 10.0,
+        "calibration_trades": 32,
+        "holdout_trades": 15,
+        "holdout_net_bps": 43.88928243624744,
+        "holdout_profit_factor": 1.1158948111498455
+      }
+    },
+    {
+      "symbol": "BTCUSD",
+      "action": "DENSE_VALIDATION_REJECTION",
+      "rejected_at": "2026-08-21T21:48:54+00:00",
+      "reason": "360-fold H1 holdout failed: 26 trades, 50% accuracy, -395.14 bps, profit factor 0.614",
+      "candidate_policy": {
+        "symbol": "BTCUSD",
+        "model_name": "BTC-DirectRidge",
+        "decision_mode": "H1_ONLY",
+        "enabled": false,
+        "approved": false,
+        "confidence_threshold": 0.7,
+        "m15_edge_bps": 0.0,
+        "h1_edge_bps": 10.0,
+        "calibration_trades": 74,
+        "holdout_trades": 26,
+        "holdout_net_bps": -395.1373154483524,
+        "holdout_profit_factor": 0.6138760555527175
+      }
+    }
+  ]
+}
