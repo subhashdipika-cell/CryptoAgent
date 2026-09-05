@@ -482,8 +482,8 @@ th:first-child,td:first-child{{text-align:left}}th{{color:#93c5fd}}.note{{color:
 def sync_from_terminal(settings: Settings = SETTINGS) -> dict[str, int]:
     journal = TradeJournal(settings)
     agent = MT5ExecutionAgent(settings)
-    agent.connect()
     try:
+        agent.connect()
         account = agent.mt5.account_info()
         if account is None:
             raise RuntimeError("MT5 account unavailable")
@@ -503,6 +503,14 @@ def sync_from_terminal(settings: Settings = SETTINGS) -> dict[str, int]:
         marker_path.parent.mkdir(parents=True, exist_ok=True)
         marker_path.write_text(json.dumps(marker, indent=2) + "\n", encoding="utf-8")
         return counts
+    except Exception as error:
+        marker_path = Path(settings.report_dir) / "reconciliation_status.json"
+        marker_path.parent.mkdir(parents=True, exist_ok=True)
+        marker_path.write_text(json.dumps({
+            "status": "FAILED", "synced_at": None,
+            "error": str(error), "require_demo_account": settings.require_demo_account,
+        }, indent=2) + "\n", encoding="utf-8")
+        raise
     finally:
         agent.shutdown()
 

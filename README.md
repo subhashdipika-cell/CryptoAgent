@@ -202,6 +202,31 @@ on BTC and Gold walk-forward/forward data before it can influence execution.
 
 ## Strategy backtest
 
+### Isolated BTC trend and Gold session experiment
+
+`regime_experiment.py` evaluates H1 EMA20/50 trend plus a prior 20-bar breakout.
+BTC varies only the 20-bar efficiency threshold; Gold varies only UTC entry
+sessions with efficiency fixed at 0.2. Stops (2 ATR), targets (3 ATR), six-bar
+holding limit and 0.5% research risk stay fixed. Selection uses the first 70%
+of data in three chronological segments, then evaluates the selected candidate
+on the final 30% and at 1.5 times assumed costs. Adjacent parameter results must
+also be stable. Each segment starts with $1,000; this is not portfolio evidence.
+
+Capture a new immutable DEMO snapshot and run the experiment:
+
+```powershell
+$env:MT5_TERMINAL_PATH = 'D:\MT5IntelliTrade\terminal64.exe'
+.\.venv\Scripts\python.exe regime_experiment.py --capture --snapshot data/regime_run1.npz --output research/regime_run1.json
+```
+
+Omit `--capture` to reproduce the same snapshot offline, using a new output path.
+Snapshots and source files are hashed in the result. Existing output files are
+never overwritten. The final partition is explicitly **previously observed**:
+earlier research already inspected overlapping history. Assumed commission and
+slippage, current contract conversion, bar-level fills and unavailable historical
+margin data prevent promotion. The module has no routing integration. Independent
+future data and broker cost verification remain required even if proxy gates pass.
+
 Double-click `Run-Strategy-Backtest.bat` to replay the locked calibrated policy
 over its chronological policy-holdout period. The broker-aware proxy uses MT5
 historical spread, next-M15-bar entry, 0.03 commission per side, 10 points of

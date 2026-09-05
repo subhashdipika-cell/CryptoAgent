@@ -1,18 +1,18 @@
 {
   "schema_version": 2,
-  "generated_at": "2026-09-05T17:03:17+00:00",
+  "generated_at": "2026-09-05T17:28:35+00:00",
   "overall_status": "NO_STRATEGY_READY",
   "deployment_scope": "DEMO_ONLY",
   "reconciliation": {
-    "status": "SUCCESS",
-    "synced_at": "2026-09-05T16:57:27+00:00",
-    "server": "VantageMarkets-Demo",
-    "trade_mode": 0,
+    "status": "FAILED",
+    "synced_at": null,
+    "server": null,
+    "trade_mode": null,
     "require_demo_account": true,
-    "orders": 28,
-    "deals": 28,
+    "orders": null,
+    "deals": null,
     "maximum_age_minutes": 90,
-    "fresh_demo_reconciliation": true
+    "fresh_demo_reconciliation": false
   },
   "thresholds": {
     "minimum_forward_trades": 30,
@@ -43,6 +43,7 @@
             "max_drawdown_pct": null
           },
           "blockers": [
+            "FRESH_DEMO_RECONCILIATION_REQUIRED",
             "POLICY_DISABLED",
             "POLICY_NOT_APPROVED",
             "FORWARD_TRADES_0_OF_30",
@@ -65,6 +66,7 @@
             "max_drawdown_pct": 108.28912890649967
           },
           "blockers": [
+            "FRESH_DEMO_RECONCILIATION_REQUIRED",
             "POLICY_DISABLED",
             "POLICY_NOT_APPROVED",
             "NON_POSITIVE_FORWARD_EXPECTANCY",
@@ -74,6 +76,7 @@
         }
       ],
       "blockers": [
+        "BTCUSD:FRESH_DEMO_RECONCILIATION_REQUIRED",
         "BTCUSD:POLICY_DISABLED",
         "BTCUSD:POLICY_NOT_APPROVED",
         "BTCUSD:FORWARD_TRADES_0_OF_30",
@@ -81,6 +84,7 @@
         "BTCUSD:NON_POSITIVE_FORWARD_EXPECTANCY",
         "BTCUSD:FORWARD_PROFIT_FACTOR_BELOW_1_20",
         "BTCUSD:FORWARD_DRAWDOWN_PERCENT_UNAVAILABLE",
+        "XAUUSD+:FRESH_DEMO_RECONCILIATION_REQUIRED",
         "XAUUSD+:POLICY_DISABLED",
         "XAUUSD+:POLICY_NOT_APPROVED",
         "XAUUSD+:NON_POSITIVE_FORWARD_EXPECTANCY",
