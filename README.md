@@ -202,6 +202,37 @@ on BTC and Gold walk-forward/forward data before it can influence execution.
 
 ## Strategy backtest
 
+### Limited forward DEMO evaluation
+
+`demo_forward.py` is a separate, opt-in evaluation runner. Its manifest is
+`policies/demo_forward.json`, its candidate policy is
+`policies/demo_forward_candidate.json`, and its journal is `data/demo_forward.db`.
+Production policy approvals are not used. The supplied manifest is disabled:
+none of the current candidates qualifies. An operator-reviewed manifest must bind
+the exact DEMO account/server and candidate/code hash, expire within seven days,
+and record passing untouched broker-aware research evidence. This is a forward
+evaluation approval, not a claim of proven forward profitability.
+
+After approval, `python demo_forward.py` checks one cycle without orders;
+`python demo_forward.py --route --loop` requests DEMO routing. There is no
+automatic activation or launch on installation. Windows process locking prevents
+duplicate runner instances. Any exception stops the runner; restart never clears
+the durable limits or uncertain-submission lock.
+
+Limits: one evaluation position/order at a time, two attempts per UTC day, 30
+attempts total, stop-risk sizing up to four account-currency units and 0.1% equity
+per entry, and a 20-unit realized evaluation loss or account equity decline stop.
+The fifth unit is only an assumed cost allowance; gaps, costs and slippage can
+exceed planned risk. Loss stops prevent new entries, not guaranteed loss caps.
+Existing positions keep their broker SL/TP; the runner does not cancel orders or
+close positions on expiry. It does not touch other applications' trades.
+
+An unknown order result leaves a durable RESERVED attempt and requires manual
+broker reconciliation; do not clear it just to retry. A new candidate/account
+requires an explicit journal archival/review workflow. Never approve a candidate
+by copying the rejected production policies or relabeling observed history as
+untouched evidence.
+
 ### Isolated BTC trend and Gold session experiment
 
 `regime_experiment.py` evaluates H1 EMA20/50 trend plus a prior 20-bar breakout.
