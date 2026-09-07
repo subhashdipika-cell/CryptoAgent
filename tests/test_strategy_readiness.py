@@ -106,6 +106,18 @@ class StrategyReadinessTests(unittest.TestCase):
         with self.assertRaisesRegex(StrategyDeploymentBlocked, "PROFIT_FACTOR"):
             assert_strategy_deployment_ready(self.settings)
 
+    def test_failure_after_registry_generation_blocks_new_orders(self):
+        self._write_proof()
+        self._write_evidence()
+        write_dashboard(generate_registry(self.settings), self.settings)
+        (self.reports / "reconciliation_status.json").write_text('{"status":"FAILED"}')
+        with self.assertRaisesRegex(StrategyDeploymentBlocked, "current DEMO"):
+            assert_strategy_deployment_ready(self.settings)
+
+    def test_shadow_mode_cannot_reuse_calibrated_approval(self):
+        with self.assertRaisesRegex(StrategyDeploymentBlocked, "shadow"):
+            assert_strategy_deployment_ready(replace(self.settings, predictive_mode="shadow"))
+
     def test_stale_reconciliation_blocks_routing(self):
         self._write_proof(age_minutes=91)
         self._write_evidence()

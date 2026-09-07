@@ -245,6 +245,7 @@ class TradingApplication:
         )
         if plan is not None:
             try:
+                assert_strategy_deployment_ready(self.settings)
                 result = await asyncio.to_thread(self.execution.submit, plan)
             except Exception as error:
                 await asyncio.to_thread(self.journal.record_submission, account, plan, None, error)

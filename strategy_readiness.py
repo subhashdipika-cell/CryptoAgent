@@ -276,6 +276,8 @@ def assert_strategy_deployment_ready(settings: Settings = SETTINGS) -> None:
         return
     if not settings.require_demo_account:
         raise StrategyDeploymentBlocked("autonomous routing is restricted to DEMO accounts")
+    if settings.predictive_mode not in {"calibrated", "dedicated"}:
+        raise StrategyDeploymentBlocked("shadow forecasts cannot authorize autonomous orders")
     registry = load_registry(settings.strategy_readiness_path)
     generated_at = _parse_utc(registry.get("generated_at"))
     now = datetime.now(timezone.utc)
@@ -288,6 +290,8 @@ def assert_strategy_deployment_ready(settings: Settings = SETTINGS) -> None:
         raise StrategyDeploymentBlocked("strategy readiness scope is not DEMO_ONLY")
     if not registry.get("reconciliation", {}).get("fresh_demo_reconciliation", False):
         raise StrategyDeploymentBlocked("fresh successful DEMO reconciliation is not proven")
+    if not _fresh_reconciliation(settings)["fresh_demo_reconciliation"]:
+        raise StrategyDeploymentBlocked("current DEMO reconciliation failed or expired")
     strategy = next(
         (
             row for row in registry.get("strategies", [])
