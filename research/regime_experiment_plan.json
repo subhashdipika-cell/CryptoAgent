@@ -1,0 +1,14 @@
+{
+  "experiment_id": "btc-xau-regime-v1",
+  "status": "IMPLEMENTED_AWAITING_DEMO_DATA",
+  "timeframe": "H1",
+  "base": "Completed EMA20/EMA50 trend with prior 20-bar breakout; next bar entry",
+  "btc_dimension": {"efficiency_20_bar": [0.0, 0.2, 0.3, 0.4]},
+  "xau_dimension": {"efficiency_fixed": 0.2, "UTC_sessions": [[0,24],[7,16],[8,17],[9,18]]},
+  "fixed_management": "2 ATR stop, 3 ATR target, maximum six bars, no entries from 18 UTC, close before data gaps",
+  "partition": "40% train, 15% validation 1, 15% validation 2, 30% previously observed final test",
+  "selection": "Development only: all gates, minimum fold expectancy, maximum fold drawdown; final test evaluated for selected candidate only",
+  "promotion": "Unavailable: observed history and assumed historical costs cannot authorize DEMO forward routing",
+  "forward_demo_status": "NOT_STARTED",
+  "routing_changed": false
+}

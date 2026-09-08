@@ -13,12 +13,16 @@ set "MT5_BTC_SYMBOL=BTCUSD"
 set "MT5_XAU_SYMBOL=XAUUSD+"
 set "MT5_MAGIC=26081301"
 set "MT5_APP_NAME=CryptoAgent"
-set "TRADING_STRATEGY=ChronosFinBERT"
+set "TRADING_STRATEGY=AssetCalibrated"
+set "PREDICTIVE_MODE=calibrated"
 
 rem Order routing is enabled, but the runtime must verify a DEMO account.
 set "REQUIRE_DEMO_ACCOUNT=true"
 set "TRADING_ENABLED=true"
 set "DRY_RUN=false"
+set "MAX_RISK_FRACTION=0.02"
+set "AUTOMATIC_REVALIDATION=true"
+set "REVALIDATION_NEW_M15_BARS=500"
 
 if not exist "%MT5_TERMINAL_PATH%" (
     echo ERROR: MT5 terminal not found: %MT5_TERMINAL_PATH%
@@ -38,18 +42,27 @@ if not exist "models\chronos-2-base\config.json" (
 )
 
 if /I "%~1"=="--check" (
+    ".venv\Scripts\python.exe" strategy_readiness.py check
+    if errorlevel 1 (
+        echo ERROR: Strategy readiness check failed. DEMO routing remains blocked.
+        exit /b 1
+    )
     echo CryptoAgent startup check passed.
     echo Terminal: %MT5_TERMINAL_PATH%
     echo Symbols:  %MT5_BTC_SYMBOL%, %MT5_XAU_SYMBOL%
     echo Expert ID: %MT5_MAGIC% ^(CryptoAgent^)
     echo Comment:   %MT5_APP_NAME%^|%TRADING_STRATEGY%
-    echo Mode:     DEMO only - order routing ENABLED
-    echo Risk:     Maximum 1%% of equity per trade
+    echo Mode:     DEMO only - readiness-gated order routing ENABLED
+    echo Predictor: Dedicated BTC/XAU models with holdout-calibrated policy
+    echo Risk:     Maximum 2%% of equity per trade
+    echo Revalidation: Candidate-only after 500 new completed M15 bars
+    echo Promotion:    Manual approval and restart required
     exit /b 0
 )
 
 echo Starting CryptoAgent with MT5 DEMO order routing enabled...
 echo The agent will stop if the connected account is not DEMO.
+echo It will also stop unless every configured strategy policy is DEMO_READY.
 echo Close this window or press Ctrl+C to stop the agent cleanly.
 echo.
 

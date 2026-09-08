@@ -1,0 +1,14 @@
+{
+  "scope": "DEMO_ONLY",
+  "enabled": false,
+  "approved": false,
+  "terminal_path": "D:\\MT5IntelliTrade\\terminal64.exe",
+  "account_login": null,
+  "server": null,
+  "symbols": ["BTCUSD", "XAUUSD+"],
+  "started_at": null,
+  "expires_at": null,
+  "configuration_hash": null,
+  "research_evidence": {},
+  "reason": "No current candidate passed untouched broker-aware research gates"
+}

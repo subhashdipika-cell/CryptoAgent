@@ -1,0 +1,410 @@
+{
+  "schema_version": 1,
+  "source_sha256": "3f0d08f8b5d97dcef3cab572986f94c293efa09d79866dbcdb2c820df1a5d188",
+  "snapshot_sha256": "baa7a959e7da08425ce48ee5b17d0cf7db4a1c0f6edba3f8013b1659e059584a",
+  "costs": "Historical bar spread; assumed $3/lot/side commission and 25 points/fill slippage; 1.5x stress. Current broker conversion and lot/stop metadata; no rollover holdings. Historical commission/FX/margin/tick path unverified.",
+  "risk": "0.5% proxy risk, $1000 isolated equity per segment; no portfolio claim",
+  "routing_changed": false,
+  "strategies": [
+    {
+      "symbol": "BTCUSD",
+      "timeframe": "H1",
+      "dimension": "efficiency",
+      "windows": [
+        [
+          1767398400,
+          1775815200
+        ],
+        [
+          1775818800,
+          1779073200
+        ],
+        [
+          1779076800,
+          1782313200
+        ],
+        [
+          1782316800,
+          1788793200
+        ]
+      ],
+      "batch": [
+        {
+          "parameter": 0.0,
+          "development": [
+            {
+              "trades": 4,
+              "net": -11.072757142857299,
+              "expectancy": -2.7681892857143247,
+              "pf": 0.0,
+              "max_drawdown_pct": 1.2171557142857181,
+              "worst_trade": -4.513257142857182,
+              "largest_win_share": 1,
+              "risk_blocked": 91
+            },
+            {
+              "trades": 2,
+              "net": -8.552771428571576,
+              "expectancy": -4.276385714285788,
+              "pf": 0.0,
+              "max_drawdown_pct": 1.0377700000000003,
+              "worst_trade": -4.680271428571577,
+              "largest_win_share": 1,
+              "risk_blocked": 29
+            },
+            {
+              "trades": 3,
+              "net": -3.0865714285715513,
+              "expectancy": -1.0288571428571838,
+              "pf": 0.1439438963508668,
+              "max_drawdown_pct": 0.6012871428571543,
+              "worst_trade": -3.595471428571473,
+              "largest_win_share": 1.0,
+              "risk_blocked": 45
+            }
+          ]
+        },
+        {
+          "parameter": 0.2,
+          "development": [
+            {
+              "trades": 2,
+              "net": -7.6079571428571935,
+              "expectancy": -3.8039785714285967,
+              "pf": 0.0,
+              "max_drawdown_pct": 0.8328799999999889,
+              "worst_trade": -4.513257142857182,
+              "largest_win_share": 1,
+              "risk_blocked": 85
+            },
+            {
+              "trades": 2,
+              "net": -8.552771428571576,
+              "expectancy": -4.276385714285788,
+              "pf": 0.0,
+              "max_drawdown_pct": 1.0377700000000003,
+              "worst_trade": -4.680271428571577,
+              "largest_win_share": 1,
+              "risk_blocked": 25
+            },
+            {
+              "trades": 2,
+              "net": -3.076471428571531,
+              "expectancy": -1.5382357142857654,
+              "pf": 0.14434824759715784,
+              "max_drawdown_pct": 0.47251714285714574,
+              "worst_trade": -3.595471428571473,
+              "largest_win_share": 1.0,
+              "risk_blocked": 41
+            }
+          ]
+        },
+        {
+          "parameter": 0.3,
+          "development": [
+            {
+              "trades": 2,
+              "net": -7.6079571428571935,
+              "expectancy": -3.8039785714285967,
+              "pf": 0.0,
+              "max_drawdown_pct": 0.8328799999999889,
+              "worst_trade": -4.513257142857182,
+              "largest_win_share": 1,
+              "risk_blocked": 71
+            },
+            {
+              "trades": 0,
+              "net": 0,
+              "expectancy": 0,
+              "pf": 0,
+              "max_drawdown_pct": 0.0,
+              "worst_trade": 0,
+              "largest_win_share": 1,
+              "risk_blocked": 19
+            },
+            {
+              "trades": 1,
+              "net": -3.595471428571473,
+              "expectancy": -3.595471428571473,
+              "pf": 0.0,
+              "max_drawdown_pct": 0.3649300000000039,
+              "worst_trade": -3.595471428571473,
+              "largest_win_share": 1,
+              "risk_blocked": 26
+            }
+          ]
+        },
+        {
+          "parameter": 0.4,
+          "development": [
+            {
+              "trades": 1,
+              "net": -4.513257142857182,
+              "expectancy": -4.513257142857182,
+              "pf": 0.0,
+              "max_drawdown_pct": 0.5234099999999898,
+              "worst_trade": -4.513257142857182,
+              "largest_win_share": 1,
+              "risk_blocked": 55
+            },
+            {
+              "trades": 0,
+              "net": 0,
+              "expectancy": 0,
+              "pf": 0,
+              "max_drawdown_pct": 0.0,
+              "worst_trade": 0,
+              "largest_win_share": 1,
+              "risk_blocked": 15
+            },
+            {
+              "trades": 1,
+              "net": -3.595471428571473,
+              "expectancy": -3.595471428571473,
+              "pf": 0.0,
+              "max_drawdown_pct": 0.3649300000000039,
+              "worst_trade": -3.595471428571473,
+              "largest_win_share": 1,
+              "risk_blocked": 17
+            }
+          ]
+        }
+      ],
+      "selected_parameter": 0.3,
+      "final_observed_test": {
+        "trades": 3,
+        "net": -1.3057285714286264,
+        "expectancy": -0.43524285714287547,
+        "pf": 0.6450598226871723,
+        "max_drawdown_pct": 0.6296428571428578,
+        "worst_trade": -3.6787285714285827,
+        "largest_win_share": 0.5518331226295806,
+        "risk_blocked": 32
+      },
+      "cost_stress_1_5x": {
+        "trades": 3,
+        "net": -1.5713785714286495,
+        "expectancy": -0.5237928571428832,
+        "pf": 0.5764453780056291,
+        "max_drawdown_pct": 0.6413628571428603,
+        "worst_trade": -3.7099785714285827,
+        "largest_win_share": 0.5575142616665092,
+        "risk_blocked": 32
+      },
+      "stable_neighbors": false,
+      "metric_gate_pass": false,
+      "status": "RESEARCH_ONLY",
+      "demo_eligible": false,
+      "rejection_reason": "Previously observed history; independent untouched window and verified historical costs required",
+      "forward_demo_status": "NOT_STARTED"
+    },
+    {
+      "symbol": "XAUUSD+",
+      "timeframe": "H1",
+      "dimension": "UTC_session",
+      "windows": [
+        [
+          1757307600,
+          1769608800
+        ],
+        [
+          1769612400,
+          1774378800
+        ],
+        [
+          1774382400,
+          1779228000
+        ],
+        [
+          1779231600,
+          1788793200
+        ]
+      ],
+      "batch": [
+        {
+          "parameter": [
+            0,
+            24
+          ],
+          "development": [
+            {
+              "trades": 0,
+              "net": 0,
+              "expectancy": 0,
+              "pf": 0,
+              "max_drawdown_pct": 0.0,
+              "worst_trade": 0,
+              "largest_win_share": 1,
+              "risk_blocked": 157
+            },
+            {
+              "trades": 0,
+              "net": 0,
+              "expectancy": 0,
+              "pf": 0,
+              "max_drawdown_pct": 0.0,
+              "worst_trade": 0,
+              "largest_win_share": 1,
+              "risk_blocked": 37
+            },
+            {
+              "trades": 0,
+              "net": 0,
+              "expectancy": 0,
+              "pf": 0,
+              "max_drawdown_pct": 0.0,
+              "worst_trade": 0,
+              "largest_win_share": 1,
+              "risk_blocked": 36
+            }
+          ]
+        },
+        {
+          "parameter": [
+            7,
+            16
+          ],
+          "development": [
+            {
+              "trades": 0,
+              "net": 0,
+              "expectancy": 0,
+              "pf": 0,
+              "max_drawdown_pct": 0.0,
+              "worst_trade": 0,
+              "largest_win_share": 1,
+              "risk_blocked": 75
+            },
+            {
+              "trades": 0,
+              "net": 0,
+              "expectancy": 0,
+              "pf": 0,
+              "max_drawdown_pct": 0.0,
+              "worst_trade": 0,
+              "largest_win_share": 1,
+              "risk_blocked": 17
+            },
+            {
+              "trades": 0,
+              "net": 0,
+              "expectancy": 0,
+              "pf": 0,
+              "max_drawdown_pct": 0.0,
+              "worst_trade": 0,
+              "largest_win_share": 1,
+              "risk_blocked": 20
+            }
+          ]
+        },
+        {
+          "parameter": [
+            8,
+            17
+          ],
+          "development": [
+            {
+              "trades": 0,
+              "net": 0,
+              "expectancy": 0,
+              "pf": 0,
+              "max_drawdown_pct": 0.0,
+              "worst_trade": 0,
+              "largest_win_share": 1,
+              "risk_blocked": 75
+            },
+            {
+              "trades": 0,
+              "net": 0,
+              "expectancy": 0,
+              "pf": 0,
+              "max_drawdown_pct": 0.0,
+              "worst_trade": 0,
+              "largest_win_share": 1,
+              "risk_blocked": 20
+            },
+            {
+              "trades": 0,
+              "net": 0,
+              "expectancy": 0,
+              "pf": 0,
+              "max_drawdown_pct": 0.0,
+              "worst_trade": 0,
+              "largest_win_share": 1,
+              "risk_blocked": 20
+            }
+          ]
+        },
+        {
+          "parameter": [
+            9,
+            18
+          ],
+          "development": [
+            {
+              "trades": 0,
+              "net": 0,
+              "expectancy": 0,
+              "pf": 0,
+              "max_drawdown_pct": 0.0,
+              "worst_trade": 0,
+              "largest_win_share": 1,
+              "risk_blocked": 78
+            },
+            {
+              "trades": 0,
+              "net": 0,
+              "expectancy": 0,
+              "pf": 0,
+              "max_drawdown_pct": 0.0,
+              "worst_trade": 0,
+              "largest_win_share": 1,
+              "risk_blocked": 22
+            },
+            {
+              "trades": 0,
+              "net": 0,
+              "expectancy": 0,
+              "pf": 0,
+              "max_drawdown_pct": 0.0,
+              "worst_trade": 0,
+              "largest_win_share": 1,
+              "risk_blocked": 22
+            }
+          ]
+        }
+      ],
+      "selected_parameter": [
+        0,
+        24
+      ],
+      "final_observed_test": {
+        "trades": 0,
+        "net": 0,
+        "expectancy": 0,
+        "pf": 0,
+        "max_drawdown_pct": 0.0,
+        "worst_trade": 0,
+        "largest_win_share": 1,
+        "risk_blocked": 98
+      },
+      "cost_stress_1_5x": {
+        "trades": 0,
+        "net": 0,
+        "expectancy": 0,
+        "pf": 0,
+        "max_drawdown_pct": 0.0,
+        "worst_trade": 0,
+        "largest_win_share": 1,
+        "risk_blocked": 98
+      },
+      "stable_neighbors": false,
+      "metric_gate_pass": false,
+      "status": "RESEARCH_ONLY",
+      "demo_eligible": false,
+      "rejection_reason": "Previously observed history; independent untouched window and verified historical costs required",
+      "forward_demo_status": "NOT_STARTED"
+    }
+  ],
+  "configuration_hash": "4bbdc81d1f78e925aea2c5890872842c8c213734243a9d3b3deca902109c8f10"
+}

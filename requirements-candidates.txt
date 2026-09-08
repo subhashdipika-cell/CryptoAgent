@@ -1,0 +1,3 @@
+# Optional IBM runtime. Google TimesFM uses the Transformers checkpoint already
+# supported by requirements.txt; its weights are intentionally staged separately.
+git+https://github.com/ibm-granite/granite-tsfm.git@v0.3.6

@@ -14,9 +14,24 @@ from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent
 MODEL_DIR = Path(os.getenv("CHRONOS_MODEL_PATH", BASE_DIR / "models" / "chronos-2-base"))
+TTM_MODEL_DIR = Path(os.getenv("TTM_MODEL_PATH", BASE_DIR / "models" / "granite-ttm-r3"))
+TIMESFM_MODEL_DIR = Path(os.getenv("TIMESFM_MODEL_PATH", BASE_DIR / "models" / "timesfm-2.5-200m-transformers"))
 LOG_DIR = Path(os.getenv("LOG_DIR", BASE_DIR / "logs"))
 DATA_DIR = Path(os.getenv("DATA_DIR", BASE_DIR / "data"))
 REPORT_DIR = Path(os.getenv("REPORT_DIR", BASE_DIR / "reports"))
+POLICY_DIR = Path(os.getenv("POLICY_DIR", BASE_DIR / "policies"))
+DECISION_POLICY_PATH = Path(
+    os.getenv("DECISION_POLICY_PATH", POLICY_DIR / "asset_decision_policy.json")
+)
+CANDIDATE_POLICY_PATH = Path(
+    os.getenv("CANDIDATE_POLICY_PATH", REPORT_DIR / "candidate_asset_decision_policy.json")
+)
+REVALIDATION_STATE_PATH = Path(
+    os.getenv("REVALIDATION_STATE_PATH", DATA_DIR / "revalidation_state.json")
+)
+STRATEGY_READINESS_PATH = Path(
+    os.getenv("STRATEGY_READINESS_PATH", POLICY_DIR / "strategy_readiness.json")
+)
 
 # Set these before chronos/transformers is imported anywhere else.
 os.environ["HF_HUB_OFFLINE"] = "1"
@@ -38,13 +53,15 @@ class Settings:
     symbols: tuple[str, ...] = field(
         default_factory=lambda: (
             os.getenv("MT5_BTC_SYMBOL", "BTCUSD"),
-            os.getenv("MT5_XAU_SYMBOL", "XAUUSD"),
+            os.getenv("MT5_XAU_SYMBOL", "XAUUSD+"),
         )
     )
     bar_count: int = 500
     prediction_length: int = 5
     loop_interval_seconds: float = 60.0
     model_path: Path = MODEL_DIR
+    ttm_model_path: Path = TTM_MODEL_DIR
+    timesfm_model_path: Path = TIMESFM_MODEL_DIR
     max_model_ram_bytes: int = 2 * 1024**3
     torch_threads: int = 3
 
@@ -85,12 +102,19 @@ class Settings:
         )
     )
     report_dir: Path = REPORT_DIR
+    decision_policy_path: Path = DECISION_POLICY_PATH
+    candidate_policy_path: Path = CANDIDATE_POLICY_PATH
+    revalidation_state_path: Path = REVALIDATION_STATE_PATH
+    strategy_readiness_path: Path = STRATEGY_READINESS_PATH
+    readiness_max_age_minutes: int = field(
+        default_factory=lambda: int(os.getenv("READINESS_MAX_AGE_MINUTES", "90"))
+    )
     history_sync_days: int = field(
         default_factory=lambda: int(os.getenv("HISTORY_SYNC_DAYS", "3650"))
     )
     trading_enabled: bool = field(default_factory=lambda: _bool("TRADING_ENABLED"))
     require_demo_account: bool = field(default_factory=lambda: _bool("REQUIRE_DEMO_ACCOUNT", True))
-    max_risk_fraction: float = field(default_factory=lambda: float(os.getenv("MAX_RISK_FRACTION", "0.01")))
+    max_risk_fraction: float = field(default_factory=lambda: float(os.getenv("MAX_RISK_FRACTION", "0.02")))
     max_margin_fraction: float = field(default_factory=lambda: float(os.getenv("MAX_MARGIN_FRACTION", "0.25")))
     min_leverage: int = field(default_factory=lambda: int(os.getenv("MIN_LEVERAGE", "1")))
     max_leverage: int = field(default_factory=lambda: int(os.getenv("MAX_LEVERAGE", "500")))
@@ -101,14 +125,29 @@ class Settings:
     trailing_distance_atr: float = 1.0
     max_deviation_points: int = 20
     signal_threshold: float = 0.62
+    predictive_mode: str = field(
+        default_factory=lambda: os.getenv("PREDICTIVE_MODE", "shadow").strip().lower()
+    )
+    validation_bars: int = field(
+        default_factory=lambda: int(os.getenv("PREDICTIVE_VALIDATION_BARS", "3000"))
+    )
+    validation_min_folds: int = field(
+        default_factory=lambda: int(os.getenv("PREDICTIVE_MIN_FOLDS", "30"))
+    )
+    automatic_revalidation: bool = field(
+        default_factory=lambda: _bool("AUTOMATIC_REVALIDATION", True)
+    )
+    revalidation_new_m15_bars: int = field(
+        default_factory=lambda: int(os.getenv("REVALIDATION_NEW_M15_BARS", "500"))
+    )
     dry_run: bool = field(default_factory=lambda: _bool("DRY_RUN", True))
 
     qwen_base_url: str = field(default_factory=lambda: os.getenv("QWEN_BASE_URL", "http://127.0.0.1:1234/v1"))
     qwen_model: str = "Qwen2.5-Coder-7B-Instruct"
 
     def validate(self) -> None:
-        if not 0 < self.max_risk_fraction <= 0.01:
-            raise ValueError("MAX_RISK_FRACTION must be in (0, 0.01]")
+        if not 0 < self.max_risk_fraction <= 0.02:
+            raise ValueError("MAX_RISK_FRACTION must be in (0, 0.02]")
         if not 0 < self.max_margin_fraction <= 1:
             raise ValueError("MAX_MARGIN_FRACTION must be in (0, 1]")
         if self.bar_count < 50 or self.prediction_length != 5:
@@ -122,6 +161,14 @@ class Settings:
         self.order_comment(self.strategy_name)
         if self.history_sync_days <= 0:
             raise ValueError("HISTORY_SYNC_DAYS must be positive")
+        if self.predictive_mode not in {"shadow", "calibrated", "dedicated"}:
+            raise ValueError("PREDICTIVE_MODE must be shadow, calibrated, or dedicated")
+        if self.validation_bars < 500 or self.validation_min_folds < 20:
+            raise ValueError("predictive validation requires >=500 bars and >=20 folds")
+        if self.revalidation_new_m15_bars < 500:
+            raise ValueError("REVALIDATION_NEW_M15_BARS must be >=500")
+        if self.readiness_max_age_minutes < 5:
+            raise ValueError("READINESS_MAX_AGE_MINUTES must be >=5")
 
     def order_comment(self, strategy_name: str) -> str:
         application = self.application_name.strip()

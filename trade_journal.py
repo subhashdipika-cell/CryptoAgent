@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import sqlite3
 import threading
+import json
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable, Iterator
 
 from config import Settings
-from execution_agent import AccountSnapshot, OrderPlan
+from execution_agent import AccountSnapshot, OrderPlan, PaperMinimumLotRiskReport, Side
 
 
 SCHEMA = """
@@ -50,6 +51,25 @@ CREATE TABLE IF NOT EXISTS signals (
     free_margin REAL NOT NULL,
     expert_id INTEGER NOT NULL,
     order_comment TEXT NOT NULL
+    ,decision_reason TEXT NOT NULL DEFAULT 'LEGACY_UNKNOWN'
+    ,calibrated_score REAL
+    ,required_score REAL
+    ,active_model TEXT
+);
+
+CREATE TABLE IF NOT EXISTS model_forecasts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    recorded_at TEXT NOT NULL,
+    account_login INTEGER NOT NULL,
+    server TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    timeframe TEXT NOT NULL,
+    model_name TEXT NOT NULL,
+    mode TEXT NOT NULL,
+    direction TEXT NOT NULL,
+    confidence REAL NOT NULL,
+    edge_bps REAL NOT NULL,
+    predictions_json TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS submissions (
@@ -75,6 +95,34 @@ CREATE TABLE IF NOT EXISTS submissions (
     retcode INTEGER,
     broker_message TEXT,
     error TEXT
+);
+
+CREATE TABLE IF NOT EXISTS order_plan_rejections (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    recorded_at TEXT NOT NULL,
+    account_login INTEGER NOT NULL,
+    server TEXT NOT NULL,
+    symbol TEXT NOT NULL,
+    side TEXT NOT NULL,
+    rejection_error TEXT NOT NULL,
+    report_error TEXT,
+    equity REAL,
+    risk_cap_fraction REAL,
+    paper_volume REAL,
+    atr REAL,
+    stop_atr_multiple REAL,
+    stop_distance REAL,
+    broker_minimum_stop_distance REAL,
+    risk_budget REAL,
+    minimum_lot_risk REAL,
+    risk_shortfall REAL,
+    minimum_equity REAL,
+    equity_shortfall REAL,
+    maximum_stop_distance REAL,
+    stop_distance_excess REAL,
+    maximum_atr REAL,
+    atr_excess REAL,
+    fits_risk_cap INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS mt5_orders (
@@ -123,6 +171,7 @@ CREATE TABLE IF NOT EXISTS mt5_deals (
 );
 
 CREATE INDEX IF NOT EXISTS idx_signals_symbol_time ON signals(symbol, recorded_at);
+CREATE INDEX IF NOT EXISTS idx_forecasts_symbol_time ON model_forecasts(symbol, recorded_at);
 CREATE INDEX IF NOT EXISTS idx_deals_position ON mt5_deals(position_id, time_msc);
 CREATE INDEX IF NOT EXISTS idx_deals_magic_time ON mt5_deals(expert_id, time_msc);
 """
@@ -144,6 +193,20 @@ class TradeJournal:
         self._lock = threading.RLock()
         with self._connect() as connection:
             connection.executescript(SCHEMA)
+            self._migrate_schema(connection)
+
+    @staticmethod
+    def _migrate_schema(connection: sqlite3.Connection) -> None:
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(signals)")}
+        additions = {
+            "decision_reason": "TEXT NOT NULL DEFAULT 'LEGACY_UNKNOWN'",
+            "calibrated_score": "REAL",
+            "required_score": "REAL",
+            "active_model": "TEXT",
+        }
+        for name, definition in additions.items():
+            if name not in columns:
+                connection.execute(f"ALTER TABLE signals ADD COLUMN {name} {definition}")
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
@@ -179,6 +242,23 @@ class TradeJournal:
                 ),
             )
 
+    def record_model_forecast(
+        self, account: Any, symbol: str, timeframe: str, forecast: Any, mode: str
+    ) -> None:
+        values = [float(value) for value in forecast.predictions]
+        with self._lock, self._connect() as connection:
+            connection.execute(
+                """INSERT INTO model_forecasts
+                (recorded_at, account_login, server, symbol, timeframe, model_name,
+                 mode, direction, confidence, edge_bps, predictions_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    utc_now(), int(account.login), str(account.server), symbol, timeframe,
+                    forecast.model_name, mode, forecast.direction, float(forecast.probability),
+                    float(forecast.edge_bps), json.dumps(values),
+                ),
+            )
+
     def record_signal(
         self,
         *,
@@ -191,6 +271,10 @@ class TradeJournal:
         sentiment: Any,
         atr: float,
         decision: str,
+        decision_reason: str = "LEGACY_UNKNOWN",
+        calibrated_score: float | None = None,
+        required_score: float | None = None,
+        active_model: str | None = None,
     ) -> None:
         comment = self.settings.order_comment(strategy)
         with self._lock, self._connect() as connection:
@@ -199,8 +283,9 @@ class TradeJournal:
                 (recorded_at, account_login, server, symbol, strategy,
                  m15_direction, m15_probability, h1_direction, h1_probability,
                  sentiment, sentiment_degraded, atr, decision, equity, free_margin,
-                 expert_id, order_comment)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                 expert_id, order_comment, decision_reason, calibrated_score,
+                 required_score, active_model)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     utc_now(),
                     int(account.login),
@@ -219,6 +304,10 @@ class TradeJournal:
                     snapshot.free_margin,
                     self.settings.magic_number,
                     comment,
+                    decision_reason,
+                    calibrated_score,
+                    required_score,
+                    active_model,
                 ),
             )
 
@@ -259,6 +348,55 @@ class TradeJournal:
                     _value(result, "retcode"),
                     _value(result, "comment"),
                     str(error) if error else None,
+                ),
+            )
+
+    def record_order_plan_rejection(
+        self,
+        account: Any,
+        symbol: str,
+        side: Side,
+        error: Exception,
+        report: PaperMinimumLotRiskReport | None,
+        report_error: Exception | None = None,
+    ) -> None:
+        values = (
+            (
+                report.equity,
+                report.risk_cap_fraction,
+                report.volume,
+                report.atr,
+                report.stop_atr_multiple,
+                report.stop_distance,
+                report.broker_minimum_stop_distance,
+                report.risk_budget,
+                report.minimum_lot_risk,
+                report.risk_shortfall,
+                report.minimum_equity,
+                report.equity_shortfall,
+                report.maximum_stop_distance,
+                report.stop_distance_excess,
+                report.maximum_atr,
+                report.atr_excess,
+                int(report.fits_risk_cap),
+            )
+            if report is not None
+            else (None,) * 17
+        )
+        with self._lock, self._connect() as connection:
+            connection.execute(
+                """INSERT INTO order_plan_rejections
+                (recorded_at, account_login, server, symbol, side, rejection_error,
+                 report_error, equity, risk_cap_fraction, paper_volume, atr,
+                 stop_atr_multiple, stop_distance, broker_minimum_stop_distance,
+                 risk_budget, minimum_lot_risk, risk_shortfall, minimum_equity,
+                 equity_shortfall, maximum_stop_distance, stop_distance_excess,
+                 maximum_atr, atr_excess, fits_risk_cap)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    utc_now(), int(account.login), str(account.server), symbol,
+                    side.value, str(error), str(report_error) if report_error else None,
+                    *values,
                 ),
             )
 
@@ -361,7 +499,10 @@ class TradeJournal:
         return {"orders": len(tracked_orders), "deals": len(tracked_deals)}
 
     def rows(self, table: str) -> list[sqlite3.Row]:
-        allowed = {"account_snapshots", "signals", "submissions", "mt5_orders", "mt5_deals"}
+        allowed = {
+            "account_snapshots", "signals", "model_forecasts", "submissions",
+            "order_plan_rejections", "mt5_orders", "mt5_deals",
+        }
         if table not in allowed:
             raise ValueError(f"unsupported journal table: {table}")
         with self._connect() as connection:
