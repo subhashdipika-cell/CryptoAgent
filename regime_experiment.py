@@ -164,27 +164,35 @@ def main():
     parser.add_argument('--capture', action='store_true', help='Read completed bars from DEMO MT5')
     parser.add_argument('--snapshot', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--capture-only', action='store_true', help='Capture data without running experiments')
     args = parser.parse_args()
+    if args.capture_only and not args.capture:
+        parser.error('--capture-only requires --capture')
     if args.output.exists():
         raise FileExistsError('Use a new output path; preserve earlier experiments')
     if args.capture:
         if args.snapshot.exists():
             raise FileExistsError('Snapshot is immutable; use a new path')
         import MetaTrader5 as mt5
-        import os
-        if not mt5.initialize(path=os.environ['MT5_TERMINAL_PATH'], timeout=20000):
-            raise RuntimeError(mt5.last_error())
+        from config import Settings
+        from mt5_connection import connect_bounded, inspect_connection
+        capture_settings = Settings(require_demo_account=True, trading_enabled=False, dry_run=True)
+        health = connect_bounded(mt5, capture_settings)
         try:
             account = mt5.account_info()
             if account is None or account.trade_mode != mt5.ACCOUNT_TRADE_MODE_DEMO:
                 raise PermissionError('DEMO account required')
             arrays, meta = {}, {}
             for symbol in ('BTCUSD', 'XAUUSD+'):
+                if not mt5.symbol_select(symbol, True):
+                    raise RuntimeError(f'{symbol}: symbol unavailable')
                 rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_H1, 1, 6000)
                 info = mt5.symbol_info(symbol)
                 if rates is None or len(rates) < 2000 or info is None:
                     raise RuntimeError(f'{symbol}: insufficient data/metadata')
                 tick = mt5.symbol_info_tick(symbol)
+                if tick is None or tick.ask <= 0:
+                    raise RuntimeError(f'{symbol}: tick unavailable')
                 profit = mt5.order_calc_profit(mt5.ORDER_TYPE_BUY, symbol, 1.0, tick.ask, tick.ask+1)
                 if profit is None or profit <= 0:
                     raise RuntimeError('Profit conversion unavailable')
@@ -192,11 +200,18 @@ def main():
                 meta[symbol] = dict(point=info.point, volume_min=info.volume_min,
                     volume_max=info.volume_max, volume_step=info.volume_step,
                     stop_distance=info.trade_stops_level*info.point, cash_per_price_lot=profit)
+            final_account, _ = inspect_connection(mt5, capture_settings)
+            if (final_account.login, final_account.server) != (account.login, account.server):
+                raise PermissionError('Account changed during capture')
+            arrays['connection_health'] = np.array(json.dumps(health))
             arrays['metadata'] = np.array(json.dumps(meta))
             args.snapshot.parent.mkdir(parents=True, exist_ok=True)
             np.savez_compressed(args.snapshot, **arrays)
         finally:
             mt5.shutdown()
+    if args.capture_only:
+        print(f'RESEARCH_ONLY capture: {args.snapshot}; no experiments or policy changes')
+        return
     with np.load(args.snapshot, allow_pickle=False) as snapshot:
         meta = json.loads(str(snapshot['metadata']))
         result = [experiment(snapshot[s], meta[s], s) for s in ('BTCUSD', 'XAUUSD+')]

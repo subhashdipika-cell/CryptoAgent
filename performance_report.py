@@ -483,13 +483,20 @@ def sync_from_terminal(settings: Settings = SETTINGS) -> dict[str, int]:
     journal = TradeJournal(settings)
     agent = MT5ExecutionAgent(settings)
     try:
+        if not settings.require_demo_account or settings.trading_enabled or not settings.dry_run:
+            raise PermissionError("Reconciliation requires DEMO-only, trading disabled, DRY_RUN=true")
         agent.connect()
         account = agent.mt5.account_info()
         if account is None:
             raise RuntimeError("MT5 account unavailable")
         journal.record_account(account, agent.snapshot())
         counts = journal.sync_mt5_history(agent.mt5, account)
+        from mt5_connection import inspect_connection
+        final_account, health = inspect_connection(agent.mt5, settings)
+        if (final_account.login, final_account.server) != (account.login, account.server):
+            raise PermissionError("Account changed during reconciliation")
         marker = {
+            "connection_health": agent.connection_health,
             "status": "SUCCESS",
             "synced_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "account_login": int(account.login),

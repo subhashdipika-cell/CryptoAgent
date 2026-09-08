@@ -325,3 +325,49 @@ read-only and never changes policy, eligibility, sizing, or order routing.
 - `autogen_orchestration.py`: isolated Qwen-backed implementation/review agents.
 - `trade_journal.py`: SQLite decision, account, submission, order, and deal journal.
 - `performance_report.py`: MT5 reconciliation and HTML/CSV performance exports.
+
+### Read-only MT5 recovery and evidence checks
+
+Use the explicit owned executable; never use terminal auto-discovery or the trading
+batch launcher for diagnostics. The D: IntelliTrade terminal is shared with other
+applications. The C: Vantage terminal belongs to SMT. Do not restart either as an
+IPC recovery shortcut. CryptoAgent retries only its own Python attachment, at most
+three times with a 20-second native initialization timeout and one-second delays.
+Three consistent terminal/account probes are required. Other native API calls do
+not provide a hard wall-clock bound. Wrong terminal, account, server, or non-DEMO
+identity fails immediately; successful attachment never approves a policy.
+
+```powershell
+$env:MT5_TERMINAL_PATH='D:\MT5IntelliTrade\terminal64.exe'
+$env:TRADING_ENABLED='false'
+$env:DRY_RUN='true'
+$env:REQUIRE_DEMO_ACCOUNT='true'
+.\.venv\Scripts\python.exe performance_report.py --sync
+.\.venv\Scripts\python.exe strategy_readiness.py generate
+.\.venv\Scripts\python.exe regime_experiment.py --capture --capture-only --snapshot data/new_unique_capture.npz --output research/new_unique_result.json
+```
+
+Inspect `reports/reconciliation_status.json`: SUCCESS records attachment health,
+retry count, stable probes, terminal directory and DEMO server. FAILED invalidates
+freshness and includes the connection error and corrective action. Verify the
+expected terminal is authenticated and broker-connected; coordinate with its other
+owners if IPC failures persist. Never switch executables automatically. Reconcile
+again after capture to verify independent reattachment. Snapshot paths must be new;
+`--capture-only` does not replay strategies or create experiment results.
+
+On 2026-09-08, two independent read-only reconciliations succeeded (28 orders and
+28 deals each), on VantageMarkets-Demo, trade_mode=0, with three healthy probes per
+attachment. BTCUSD and XAUUSD+ each supplied 6000 completed-position H1 bars.
+Broker bar timestamps are retained verbatim; their timezone must be established
+before interpreting UTC-session experiments. No new profitability metrics were run.
+The original intermittent timeout was not reproduced outside the restricted
+sandbox; repeated attachment works currently but does not prove exclusive ownership
+or indefinite uptime. Tests simulate transient and persistent IPC failure.
+
+Readiness remains NO_STRATEGY_READY. BTC has 0/30 qualifying trades and 0/10 sessions.
+The revoked XAU route has 65 trades/11 sessions, net -1104.90, expectancy -16.9985,
+PF 0.3297 and drawdown 108.2891%. Required gates remain positive net expectancy,
+PF >=1.20, drawdown <=5%, sample/session minima, fresh reconciliation (90 minutes),
+matching configuration hash and explicit enabled/approved policy. Both policies
+remain disabled/unapproved. Regime research additionally requires independent
+untouched evaluation, verified historical costs/timezone and its own forward evidence.

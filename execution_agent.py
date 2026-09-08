@@ -84,28 +84,9 @@ class MT5ExecutionAgent:
         self.state = ExecutionState.DISCONNECTED
 
     def connect(self) -> None:
-        kwargs: dict[str, Any] = {"timeout": self.settings.mt5_timeout_ms}
-        if self.settings.mt5_terminal_path:
-            kwargs["path"] = self.settings.mt5_terminal_path
-        if self.settings.mt5_login:
-            kwargs.update(
-                login=self.settings.mt5_login,
-                password=self.settings.mt5_password,
-                server=self.settings.mt5_server,
-            )
-        if not self.mt5.initialize(**kwargs):
-            self.state = ExecutionState.DEGRADED
-            raise ConnectionError(f"MT5 initialize failed: {self.mt5.last_error()}")
-        account = self.mt5.account_info()
-        if account is None:
-            self.shutdown()
-            raise ConnectionError(f"MT5 account unavailable: {self.mt5.last_error()}")
-        if self.settings.require_demo_account and getattr(account, "trade_mode", None) != self.mt5.ACCOUNT_TRADE_MODE_DEMO:
-            self.shutdown()
-            raise PermissionError("REQUIRE_DEMO_ACCOUNT is set and the connected account is not DEMO")
-        if not self.settings.min_leverage <= account.leverage <= self.settings.max_leverage:
-            self.shutdown()
-            raise PermissionError(f"account leverage {account.leverage} is outside configured limits")
+        from mt5_connection import connect_bounded
+        self.state = ExecutionState.DEGRADED
+        self.connection_health = connect_bounded(self.mt5, self.settings)
         self.state = ExecutionState.READY
 
     def shutdown(self) -> None:
